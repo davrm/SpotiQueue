@@ -96,6 +96,7 @@ function LiveQueue() {
 
     const handleTogglePlay = () => axios.post('/api/admin/playback/toggle').then(fetchData).catch(e => alert(e.response?.data?.error))
     const handleNext = () => axios.post('/api/admin/playback/next').then(fetchData)
+    // This handleVote route is natively completely unlimited for Admins!
     const handleVote = (trackId, delta) => axios.post(`/api/admin/queue/${trackId}/vote`, { delta }).then(fetchData)
     const handleRemove = (trackId) => window.confirm('Remove from queue?') && axios.delete(`/api/admin/queue/${trackId}`).then(fetchData)
 
@@ -243,11 +244,22 @@ function LiveQueue() {
                                     <div className="text-[11px] text-muted-foreground truncate">{track.artist_name}</div>
                                 </div>
                                 <div className="flex items-center gap-0.5">
-                                    <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, 1)} className="h-8 w-8 p-0 hover:text-green-500">
+                                    {/* NEW: Admin Unlimited Downvote Button */}
+                                    <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, -1)} className="h-8 w-8 p-0 hover:text-red-500 hover:bg-red-500/10 transition-colors">
+                                        <ThumbsDown className="h-4 w-4" />
+                                    </Button>
+
+                                    <span className="text-xs font-black w-6 text-center">{track.votes}</span>
+
+                                    {/* Admin Unlimited Upvote Button */}
+                                    <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, 1)} className="h-8 w-8 p-0 hover:text-green-500 hover:bg-green-500/10 transition-colors">
                                         <ThumbsUp className="h-4 w-4" />
                                     </Button>
-                                    <span className="text-xs font-black w-5 text-center">{track.votes}</span>
-                                    <Button variant="ghost" size="sm" onClick={() => handleRemove(track.track_id)} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive">
+
+                                    <div className="w-px h-6 bg-border mx-1" />
+
+                                    {/* Admin Remove Button */}
+                                    <Button variant="ghost" size="sm" onClick={() => handleRemove(track.track_id)} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                                         <Trash2 className="h-4 w-4" />
                                     </Button>
                                 </div>

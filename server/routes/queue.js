@@ -420,5 +420,55 @@ router.get('/votes', (req, res) => {
   }
 });
 
+// Advanced Quick-Vote endpoint for AutoEngine local_queue
+router.post('/quick-vote', (req, res) => {
+  const { track_id, direction, fingerprint_id } = req.body;
+
+  if (!track_id || !direction || !fingerprint_id) {
+    return res.status(400).json({ error: 'Track ID, direction, and fingerprint required' });
+  }
+
+  const dirInt = direction === 'up' ? 1 : -1;
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    // 1. Check if this user has already voted for this specific song
+    const existing = db.prepare('SELECT direction FROM votes WHERE track_id = ? AND fingerprint_id = ?').get(track_id, fingerprint_id);
+
+    let voteChange = 0;
+    let newUserVote = null;
+
+    if (existing) {
+      if (existing.direction === dirInt) {
+        // User clicked the same button: Remove their vote (Toggle off)
+        db.prepare('DELETE FROM votes WHERE track_id = ? AND fingerprint_id = ?').run(track_id, fingerprint_id);
+        voteChange = -dirInt; // Reverse the previous vote
+      } else {
+        // User switched their vote (e.g., from Downvote to Upvote)
+        db.prepare('UPDATE votes SET direction = ? WHERE track_id = ? AND fingerprint_id = ?').run(dirInt, track_id, fingerprint_id);
+        voteChange = dirInt * 2; // Math: moving from -1 to 1 requires adding 2 to the total
+        newUserVote = dirInt;
+      }
+    } else {
+      // First time voting on this song
+      db.prepare('INSERT INTO votes (track_id, fingerprint_id, direction, created_at) VALUES (?, ?, ?, ?)').run(track_id, fingerprint_id, dirInt, now);
+      voteChange = dirInt;
+      newUserVote = dirInt;
+    }
+
+    // 2. Apply the mathematically correct change to the total votes in local_queue
+    db.prepare(`
+      UPDATE local_queue
+      SET votes = votes + ?
+      WHERE track_id = ?
+    `).run(voteChange, track_id);
+
+    res.json({ success: true, userVote: newUserVote });
+  } catch (error) {
+    console.error('Quick vote error:', error);
+    res.status(500).json({ error: 'Failed to record vote' });
+  }
+});
+
 module.exports = router;
 
