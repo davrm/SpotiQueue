@@ -292,6 +292,103 @@ async function getQueue() {
   }
 }
 
+async function playTrack(trackUri) {
+  const token = await getAccessToken();
+
+  try {
+    await axios.put(`${SPOTIFY_API_BASE}/me/player/play`, {
+      uris: [trackUri]
+    }, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    return true;
+  } catch (error) {
+    console.error('Error playing track:', error.response?.data || error.message);
+    if (error.response?.status === 404) {
+      throw new Error('No active Spotify device found.');
+    }
+    throw new Error('Failed to force play track');
+  }
+}
+
+async function pausePlayback() {
+  const token = await getAccessToken();
+  try {
+    await axios.put(`${SPOTIFY_API_BASE}/me/player/pause`, null, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  } catch (e) {
+    // Ignore error if already paused
+    if (e.response?.status !== 403) throw e;
+  }
+}
+
+async function resumePlayback() {
+  const token = await getAccessToken();
+  try {
+    await axios.put(`${SPOTIFY_API_BASE}/me/player/play`, null, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  } catch (e) {
+    // Ignore error if already playing
+    if (e.response?.status !== 403) throw e;
+  }
+}
+
+async function skipPlayback() {
+  const token = await getAccessToken();
+  await axios.post(`${SPOTIFY_API_BASE}/me/player/next`, null, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+}
+
+async function getPlaylistTracks(playlistId) {
+  const token = await getAccessToken();
+  const response = await axios.get(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return response.data.items.map(item => ({
+    id: item.track.id,
+    name: item.track.name,
+    artists: item.track.artists.map(a => a.name).join(', '),
+    album_art: item.track.album.images[0]?.url || null
+  }));
+}
+
+async function getUserPlaylists() {
+  const token = await getAccessToken(); //
+  const response = await axios.get(`${SPOTIFY_API_BASE}/me/playlists`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return response.data.items.map(p => ({
+    id: p.id,
+    name: p.name,
+    trackCount: p.tracks.total,
+    image: p.images[0]?.url || null
+  }));
+}
+
+async function getDevices() {
+  const token = await getAccessToken();
+  const response = await axios.get(`${SPOTIFY_API_BASE}/me/player/devices`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return response.data.devices; // Returns [{id, name, is_active, ...}]
+}
+
+async function transferPlayback(deviceId) {
+  const token = await getAccessToken();
+  await axios.put(`${SPOTIFY_API_BASE}/me/player`, {
+    device_ids: [deviceId],
+    play: true // Automatically start playing on the new device
+  }, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+}
+
 module.exports = {
   searchTracks,
   getTrack,
@@ -300,6 +397,14 @@ module.exports = {
   addToQueue,
   getQueue,
   getAccessToken,
-  clearTokenCache
+  clearTokenCache,
+  playTrack,
+  pausePlayback,
+  resumePlayback,
+  skipPlayback,
+  getPlaylistTracks,
+  getUserPlaylists,
+  getDevices,
+  transferPlayback,
 };
 

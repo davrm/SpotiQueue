@@ -98,6 +98,19 @@ function initDatabase() {
     )
   `);
 
+  db.exec(`
+  -- (Existing tables like devices, queue_history, etc. are here)
+
+  CREATE TABLE IF NOT EXISTS local_queue (
+    track_id TEXT PRIMARY KEY,
+    track_name TEXT,
+    artist_name TEXT,
+    album_art TEXT,
+    votes INTEGER DEFAULT 1,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
   // Initialize default config
   const defaultConfig = [
     { key: 'cooldown_duration', value: '300' }, // 5 minutes in seconds

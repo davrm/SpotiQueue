@@ -3,6 +3,9 @@ const { getDb } = require('../db');
 const { getConfig } = require('../utils/config');
 const { requireAdminSession } = require('../middleware/adminSession');
 const { isTotpEnabled, verifyTotp } = require('../utils/adminLogin');
+const { addToQueue } = require('../utils/spotify')
+const engine = require('../utils/autoEngine');
+const spotify = require('../utils/spotify');
 const { verifyAdminPassword, upgradePasswordToHashIfNeeded } = require('../utils/adminPassword');
 
 const router = express.Router();
@@ -298,6 +301,238 @@ router.post('/reset-all-data', (req, res) => {
   } catch (error) {
     console.error('Error resetting data:', error);
     res.status(500).json({ error: `Failed to reset data: ${error.message}` });
+  }
+});
+
+router.post('/toggle-engine', async (req, res) => {
+  try {
+    const isRunning = engine.getStatus();
+
+    if (isRunning) {
+      engine.stopEngine();
+      res.json({ message: "CrowdPlay Engine Stopped.", active: false });
+    } else {
+      engine.startEngine();
+      res.json({ message: "CrowdPlay Engine Started! Songs will now auto-queue.", active: true });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to toggle engine' });
+  }
+});
+
+// Also add a quick route so the frontend knows if the engine is currently running:
+router.get('/engine-status', async (req, res) => {
+  res.json({ active: engine.getStatus() });
+});
+
+// Remove a song from the local voting queue
+router.delete('/queue/:trackId', (req, res) => {
+  const { trackId } = req.params;
+  const result = db.prepare('DELETE FROM local_queue WHERE track_id = ?').run(trackId);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Track not found in queue' });
+  }
+  res.json({ success: true, message: 'Track removed from queue' });
+});
+
+// Admin: Manually adjust votes (up or down)
+router.post('/queue/:trackId/vote', (req, res) => {
+  const { trackId } = req.params;
+  const { delta } = req.body; // Expects { delta: 1 } or { delta: -1 }
+
+  const result = db.prepare('UPDATE local_queue SET votes = votes + ? WHERE track_id = ?')
+      .run(delta, trackId);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Track not found' });
+  }
+  res.json({ success: true });
+});
+
+router.post('/playback/play', async (req, res) => {
+  await spotify.resumePlayback();
+  res.json({ success: true });
+});
+
+router.post('/playback/pause', async (req, res) => {
+  await spotify.pausePlayback();
+  res.json({ success: true });
+});
+
+// Get available Spotify devices
+router.get('/spotify/devices', async (req, res) => {
+  try {
+    const devices = await spotify.getDevices();
+    res.json(devices);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch devices' });
+  }
+});
+
+// Playback Controls with Error Catching
+router.post('/playback/toggle', async (req, res) => {
+  try {
+    const current = await spotify.getNowPlaying();
+    if (!current) return res.status(404).json({ error: 'No active device' });
+
+    if (current.is_playing) {
+      await spotify.pausePlayback();
+    } else {
+      await spotify.resumePlayback();
+    }
+    res.json({ success: true, isPlaying: !current.is_playing });
+  } catch (e) {
+    res.status(500).json({ error: 'Playback control failed' });
+  }
+});
+
+router.post('/playback/next', async (req, res) => {
+  try {
+    if (engine.getStatus()) {
+      engine.triggerManualSkip(); // Use the engine's skip logic
+      res.json({ success: true, message: 'Engine skip triggered' });
+    } else {
+      await spotify.skipPlayback();
+      res.json({ success: true });
+    }
+  } catch (e) {
+    res.status(500).json({ error: 'Skip failed' });
+  }
+});
+
+// Add Playlist to Queue
+router.post('/queue/add-playlist', async (req, res) => {
+  const { url } = req.body;
+  // Extract ID from URL (e.g., https://open.spotify.com/playlist/ID)
+  const playlistId = url.split('playlist/')[1]?.split('?')[0];
+
+  if (!playlistId) return res.status(400).json({ error: 'Invalid Playlist URL' });
+
+  try {
+    const tracks = await spotify.getPlaylistTracks(playlistId);
+    const insert = db.prepare(`
+      INSERT INTO local_queue (track_id, track_name, artist_name, album_art, votes) 
+      VALUES (?, ?, ?, ?, 1)
+      ON CONFLICT(track_id) DO NOTHING
+    `);
+
+    const insertMany = db.transaction((tracks) => {
+      for (const t of tracks) insert.run(t.id, t.name, t.artists, t.album_art);
+    });
+
+    insertMany(tracks);
+    res.json({ success: true, count: tracks.length });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to add playlist' });
+  }
+});
+
+// Get all playlists for the connected account
+router.get('/playlists', async (req, res) => {
+  try {
+    const playlists = await spotify.getUserPlaylists();
+    res.json(playlists);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch playlists' });
+  }
+});
+
+// Get tracks from a specific playlist
+router.get('/playlists/:id/tracks', async (req, res) => {
+  try {
+    const tracks = await spotify.getPlaylistTracks(req.params.id);
+    res.json(tracks);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch playlist tracks' });
+  }
+});
+
+router.post('/queue/add-playlist/:playlistId', async (req, res) => {
+  const { playlistId } = req.params;
+
+  try {
+    // 1. Fetch tracks from Spotify
+    const tracks = await spotify.getPlaylistTracks(playlistId);
+
+    if (!tracks || tracks.length === 0) {
+      return res.status(400).json({ error: 'Playlist is empty or could not be found.' });
+    }
+
+    // 2. Use a transaction to add all tracks efficiently
+    const insert = db.prepare(`
+      INSERT INTO local_queue (track_id, track_name, artist_name, album_art, votes) 
+      VALUES (?, ?, ?, ?, 1)
+      ON CONFLICT(track_id) DO NOTHING
+    `);
+
+    const addMany = db.transaction((trackList) => {
+      for (const track of trackList) {
+        insert.run(track.id, track.name, track.artists, track.album_art);
+      }
+    });
+
+    addMany(tracks);
+
+    res.json({
+      success: true,
+      message: `Added ${tracks.length} tracks to the queue!`,
+      count: tracks.length
+    });
+  } catch (error) {
+    console.error('Playlist add error:', error);
+    res.status(500).json({ error: 'Failed to add playlist tracks to queue.' });
+  }
+});
+
+router.get('/now-playing', async (req, res) => {
+  try {
+    const current = await spotify.getNowPlaying();
+    if (!current) return res.json({ is_playing: false });
+
+    res.json({
+      is_playing: current.is_playing,
+      progress_ms: current.progress_ms,
+      duration_ms: current.duration_ms,
+      item: {
+        id: current.id,
+        name: current.name,
+        artists: current.artists,
+        album_art: current.album_art
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch now playing' });
+  }
+});
+
+router.post('/start-party', async (req, res) => {
+  const { deviceId } = req.body;
+  try {
+    // 1. Tell Spotify to wake up this specific device
+    await spotify.transferPlayback(deviceId);
+
+    // 2. Turn on the Engine if it's not already running
+    if (!engine.getStatus()) {
+      engine.startEngine();
+    }
+
+    res.json({ success: true, message: "Party started on selected device!" });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to start party on this device.' });
+  }
+});
+
+router.post('/stop-party', async (req, res) => {
+  try
+  {
+    if (engine.getStatus()) {
+      engine.stopEngine();
+    }
+    res.json({ success: true, message: "Party stopped." });
+  }
+  catch (e) {
+    res.status(500).json({ error: 'Failed to stop party on this device.' });
   }
 });
 

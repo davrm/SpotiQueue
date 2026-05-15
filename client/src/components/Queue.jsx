@@ -1,135 +1,96 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { ThumbsUp, ThumbsDown } from 'lucide-react'
+// We removed ThumbsDown since our simple SQL table only counts upvotes right now
+import { ThumbsUp } from 'lucide-react'
 import { Button } from './ui/button'
 import { cn } from '@/lib/utils'
 
-const CACHE_KEY = 'spotiqueue.queue.current.v1'
-const CACHE_TTL = 30000 // 30 seconds
-
-function readCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return null
-    const { data, expires } = JSON.parse(raw)
-    if (Date.now() < expires) return data
-  } catch (e) { /* ignore */ }
-  return null
-}
-
-function writeCache(data) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      data,
-      expires: Date.now() + CACHE_TTL
-    }))
-  } catch (e) { /* ignore */ }
-}
-
 function Queue({ fingerprintId }) {
-  const [queue, setQueue] = useState(null)
-  const [votes, setVotes] = useState({})
-  const [userVotes, setUserVotes] = useState({})
-  const [votingEnabled, setVotingEnabled] = useState(false)
-  const [downvoteEnabled, setDownvoteEnabled] = useState(true)
+  // queue will now hold our array of songs from the local database
+  const [queue, setQueue] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const fetchQueue = async () => {
+  // 1. Fetch from our new custom endpoint
+  const fetchVotingQueue = async () => {
     try {
-      const res = await axios.get('/api/queue/current')
+      const res = await axios.get('/api/queue/voting-list')
       setQueue(res.data)
-      writeCache(res.data)
     } catch (e) {
-      const cached = readCache()
-      if (cached) setQueue(cached)
+      console.error("Failed to fetch voting queue", e)
+    } finally {
+      setLoading(false)
     }
-    finally { setLoading(false) }
-  }
-
-  const fetchVotes = async () => {
-    try {
-      const params = fingerprintId ? { fingerprint_id: fingerprintId } : {}
-      const res = await axios.get('/api/queue/votes', { params })
-      setVotes(res.data.votes || {})
-      setUserVotes(res.data.userVotes || {})
-      setVotingEnabled(res.data.enabled !== false)
-      setDownvoteEnabled(res.data.downvoteEnabled !== false)
-    } catch (e) { setVotingEnabled(false) }
   }
 
   useEffect(() => {
-    fetchQueue()
-    fetchVotes()
-    const qi = setInterval(fetchQueue, 5000)
-    const vi = setInterval(fetchVotes, 3000)
-    return () => { clearInterval(qi); clearInterval(vi) }
-  }, [fingerprintId])
+    fetchVotingQueue()
+    // Poll the database every 3 seconds to update votes in real-time
+    const interval = setInterval(fetchVotingQueue, 3000)
+    return () => clearInterval(interval)
+  }, [])
 
-  const handleVote = async (trackId, direction) => {
-    if (!fingerprintId || !votingEnabled) return
+  // 2. Handle clicking the Upvote button on the list
+  const handleVote = async (trackId) => {
+    if (!fingerprintId) return
     try {
-      const res = await axios.post('/api/queue/vote', { track_id: trackId, fingerprint_id: fingerprintId, direction })
-      setVotes(prev => ({ ...prev, [trackId]: res.data.votes }))
-      setUserVotes(prev => {
-        const next = { ...prev }
-        if (res.data.userVote == null) delete next[trackId]
-        else next[trackId] = res.data.userVote
-        return next
+      // We can reuse the /add endpoint we modified earlier!
+      // Since it uses "ON CONFLICT UPDATE votes + 1", sending the track ID again acts as an upvote.
+      await axios.post('/api/queue/add', {
+        track_id: trackId,
+        fingerprint_id: fingerprintId
       })
-    } catch (e) { /* ignore */ }
+      // Immediately refresh the list to show the new vote count
+      fetchVotingQueue()
+    } catch (e) {
+      console.error("Vote failed", e)
+    }
   }
 
-  if (loading || !queue) return null
-
-  const upNext = queue.queue || []
-  if (upNext.length === 0) return null
+  if (loading) return null
+  if (queue.length === 0) return (
+      <div className="mt-6 text-center text-muted-foreground">
+        The voting queue is empty. Search for a song to start the party!
+      </div>
+  )
 
   return (
-    <div className="mt-6">
-      <h2 className="text-lg font-semibold mb-3">Up Next</h2>
-      <div className="space-y-2">
-        {upNext.slice(0, 10).map((track, i) => (
-          <div
-            key={track.id}
-            className="flex items-center gap-3 p-3 rounded-lg border bg-card"
-          >
-            <span className="text-sm text-muted-foreground w-6 shrink-0">{i + 1}</span>
-            {track.album_art && (
-              <img src={track.album_art} alt="" className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shrink-0" />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{track.name}</div>
-              <div className="text-sm text-muted-foreground truncate">{track.artists}</div>
-            </div>
-            {votingEnabled && fingerprintId && track.votable && (
-              <div className="flex items-center gap-1 shrink-0">
-                <Button
-                  variant={userVotes[track.id] === 1 ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleVote(track.id, 1)}
-                  className="h-9 w-9 sm:h-8 sm:w-auto sm:px-2 p-0 touch-manipulation"
-                >
-                  <ThumbsUp className={cn('h-4 w-4', userVotes[track.id] === 1 && 'fill-current')} />
-                </Button>
-                {downvoteEnabled && (
-                  <Button
-                    variant={userVotes[track.id] === -1 ? 'destructive' : 'outline'}
-                    size="sm"
-                    onClick={() => handleVote(track.id, -1)}
-                    className="h-9 w-9 sm:h-8 sm:w-auto sm:px-2 p-0 touch-manipulation"
-                  >
-                    <ThumbsDown className={cn('h-4 w-4', userVotes[track.id] === -1 && 'fill-current')} />
-                  </Button>
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold mb-3">AutoEngine Voting Queue</h2>
+        <div className="space-y-2">
+          {queue.map((track, i) => (
+              <div
+                  key={track.track_id}
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+              >
+                <span className="text-sm text-muted-foreground w-6 shrink-0">{i + 1}</span>
+
+                {/* 3. Updated property names to match our SQLite table columns */}
+                {track.album_art && (
+                    <img src={track.album_art} alt="" className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shrink-0" />
                 )}
-                <span className={cn('text-sm font-medium min-w-[1.5rem] text-center', (votes[track.id] ?? 0) < 0 && 'text-destructive')}>
-                  {votes[track.id] ?? 0}
-                </span>
+
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{track.track_name}</div>
+                  <div className="text-sm text-muted-foreground truncate">{track.artist_name}</div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleVote(track.track_id)}
+                      className="h-9 w-9 sm:h-8 sm:w-auto sm:px-2 p-0 touch-manipulation"
+                  >
+                    <ThumbsUp className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm font-bold min-w-[1.5rem] text-center">
+                {track.votes}
+              </span>
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
   )
 }
 

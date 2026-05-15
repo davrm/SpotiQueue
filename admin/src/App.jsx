@@ -12,6 +12,7 @@ import Stats from './components/Stats'
 import SpotifyConnect from './components/SpotifyConnect'
 import { Button } from './components/ui/button'
 import { cn } from '@/lib/utils'
+import LiveQueue from './components/LiveQueue'
 
 /** Sync --vh to real visible height (fixes iOS / Android browser chrome vs 100vh) */
 function syncViewportHeight() {
@@ -88,6 +89,7 @@ function App() {
   }
 
   const tabs = [
+    { id: 'live-queue', label: 'Live Queue' },
     { id: 'spotify', label: 'Spotify' },
     { id: 'qr', label: 'QR Code' },
     { id: 'prequeue', label: 'Prequeue' },
@@ -212,6 +214,7 @@ function App() {
               </nav>
 
               <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-4 sm:p-6 pb-safe [-webkit-overflow-scrolling:touch]">
+                {activeTab === 'live-queue' && <LiveQueue />}
                 {activeTab === 'spotify' && <SpotifyConnect />}
                 {activeTab === 'qr' && <QrCode />}
                 {activeTab === 'prequeue' && <PrequeueManagement />}
