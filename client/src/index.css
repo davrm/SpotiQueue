@@ -1,7 +1,40 @@
+/* 1. FONT IMPORTS FOR BIG SCREEN */
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ----------------------------------------------------
+   2. BIG SCREEN UTILITIES (Only used by Display.jsx)
+---------------------------------------------------- */
+.font-display {
+  font-family: 'Lexend', sans-serif;
+}
+
+.glass-panel {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.mask-lyrics {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 20%, black 70%, rgba(0,0,0,0.3) 90%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 20%, black 70%, rgba(0,0,0,0.3) 90%, transparent 100%);
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.5; transform: scale(1.25); }
+  50% { opacity: 0.7; transform: scale(1.35); }
+}
+.animate-pulse-slow {
+  animation: pulse-slow 8s ease-in-out infinite;
+}
+
+/* ----------------------------------------------------
+   3. MOBILE APP VARIABLES (Restored to fix Guest App)
+---------------------------------------------------- */
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -51,18 +84,16 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    /* Restored original system font so the Mobile App isn't huge */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   }
 }
 
-/* Bigscreen lyrics: hide scrollbar but keep scroll (wheel / touch / keyboard) */
+/* ----------------------------------------------------
+   4. SCROLLBAR UTILITIES
+---------------------------------------------------- */
 @layer utilities {
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 }
