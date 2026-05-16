@@ -27,23 +27,30 @@ function LiveQueue() {
     const [localProgress, setLocalProgress] = useState(0)
     const progressTimer = useRef(null)
 
-    // --- 1. SYNC DATA ---
+    // --- 1. SYNC DATA (Safe Lockdown mode, polling interval adjusted to 6s) ---
     const fetchData = async () => {
         try {
-            const [qRes, eRes, dRes, nRes] = await Promise.all([
+            // Only ask for the Queue and the Engine Status first
+            const [qRes, eRes] = await Promise.all([
                 axios.get('/api/queue/voting-list'),
-                axios.get('/api/admin/engine-status'),
-                axios.get('/api/admin/spotify/devices'),
-                axios.get('/api/admin/now-playing')
+                axios.get('/api/admin/engine-status')
             ])
 
             setQueue(qRes.data)
-            setEngineActive(eRes.data.active)
-            setDevices(dRes.data || [])
+            const isEngineRunning = eRes.data.active;
+            setEngineActive(isEngineRunning)
 
-            const np = nRes.data;
-            setNowPlaying(np.item ? np : null)
-            if (np.item) setLocalProgress(np.progress_ms)
+            // KILLSWITCH: Only poll Spotify for Now Playing if the engine is actually ON!
+            if (isEngineRunning) {
+                const nRes = await axios.get('/api/admin/now-playing');
+                const np = nRes.data;
+                setNowPlaying(np.item ? np : null);
+                if (np.item) setLocalProgress(np.progress_ms);
+            } else {
+                // If the party is stopped, wipe the current track from the screen instantly
+                setNowPlaying(null);
+                setLocalProgress(0);
+            }
 
         } catch (e) {
             console.error("Mission Control Sync Error:", e)
@@ -52,9 +59,22 @@ function LiveQueue() {
         }
     }
 
+    // Manual on-demand fetch for audio hardware
+    const refreshDevices = async (force = false) => {
+        try {
+            const dRes = await axios.get(`/api/admin/spotify/devices${force ? '?refresh=true' : ''}`);
+            setDevices(dRes.data || []);
+        } catch (err) {
+            console.error("Failed to load hardware targets:", err);
+        }
+    }
+
     useEffect(() => {
-        fetchData()
-        const dataInterval = setInterval(fetchData, 3500)
+        fetchData();
+        refreshDevices(false); // Fetch silently on load
+
+        // Extended safety layout running every 6000ms instead of 3500ms
+        const dataInterval = setInterval(fetchData, 6000)
 
         // Smooth progress incrementer (runs locally every 1s)
         progressTimer.current = setInterval(() => {
@@ -82,19 +102,46 @@ function LiveQueue() {
     // --- 3. PARTY & PLAYBACK ACTIONS ---
     const handleDeviceChange = async (e) => {
         const val = e.target.value
+
         if (val === "STOP") {
-            await axios.post('/api/admin/stop-party')
-        } else if (val !== "") {
+            // OPTIMISTIC UPDATE: Instantly shut down the UI
+            setEngineActive(false);
+            setNowPlaying(null);
+            await axios.post('/api/admin/stop-party');
+        }
+        else if (val !== "") {
+            // OPTIMISTIC UPDATE: Instantly lock the dropdown and start the engine UI
+            setEngineActive(true);
+            setDevices(prev => prev.map(d => ({ ...d, is_active: d.id === val })));
+
             try {
-                await axios.post('/api/admin/start-party', { deviceId: val })
+                await axios.post('/api/admin/start-party', { deviceId: val });
             } catch (err) {
-                alert("Could not wake up device. Is Spotify open on it?")
+                // If it fails to wake up the speaker, revert the UI back
+                setEngineActive(false);
+                alert("Could not wake up device. Is Spotify open on it?");
             }
         }
-        fetchData()
+
+        fetchData();
     }
 
-    const handleTogglePlay = () => axios.post('/api/admin/playback/toggle').then(fetchData).catch(e => alert(e.response?.data?.error))
+    const handleTogglePlay = async () => {
+        if (!nowPlaying) return;
+
+        // OPTIMISTIC UPDATE: Instantly flip the play/pause icon locally!
+        const wasPlaying = nowPlaying.is_playing;
+        setNowPlaying(prev => ({ ...prev, is_playing: !wasPlaying }));
+
+        try {
+            await axios.post('/api/admin/playback/toggle');
+            fetchData(); // Sync the real data silently in the background
+        } catch (e) {
+            // If Spotify throws an error, revert the icon back to its true state
+            setNowPlaying(prev => ({ ...prev, is_playing: wasPlaying }));
+            alert(e.response?.data?.error || "Playback control failed");
+        }
+    }
     const handleNext = () => axios.post('/api/admin/playback/next').then(fetchData)
     const handleVote = (trackId, delta) => axios.post(`/api/admin/queue/${trackId}/vote`, { delta }).then(fetchData)
     const handleRemove = (trackId) => window.confirm('Remove from queue?') && axios.delete(`/api/admin/queue/${trackId}`).then(fetchData)
@@ -147,7 +194,6 @@ function LiveQueue() {
 
     const addToLocalQueue = async (track) => {
         try {
-            // Uses the Admin bypass route instead of the restricted guest route
             await axios.post('/api/admin/queue/add', { track_id: track.id })
             fetchData()
         } catch (e) {
@@ -163,7 +209,6 @@ function LiveQueue() {
             await axios.delete(`/api/admin/playlists/${selectedPlaylist.id}/tracks`, {
                 data: { uri: track.uri }
             });
-            // Refresh the playlist view instantly
             loadPlaylistTracks(selectedPlaylist);
         } catch (e) {
             alert('Failed to delete track. Ensure you granted modify permissions!');
@@ -174,6 +219,7 @@ function LiveQueue() {
 
     const activeDevice = devices.find(d => d.is_active)
     const progressPercent = nowPlaying ? (localProgress / nowPlaying.duration_ms) * 100 : 0
+    const visibleQueue = nowPlaying ? queue.filter(track => track.track_id !== nowPlaying.item.id) : queue;
 
     return (
         <div className="space-y-6 max-w-5xl mx-auto pb-[450px] px-2">
@@ -227,6 +273,7 @@ function LiveQueue() {
 
                         <div className="relative">
                             <select
+                                onFocus={() => refreshDevices(true)} // Fetches hardware dynamically only on input focus context
                                 onChange={handleDeviceChange}
                                 value={engineActive ? (activeDevice?.id || "") : "STOP"}
                                 className="w-full h-12 pl-10 pr-4 bg-background border-2 rounded-xl text-sm font-bold appearance-none focus:ring-2 focus:ring-primary outline-none"
@@ -258,8 +305,8 @@ function LiveQueue() {
             {/* --- LIST: VOTING QUEUE --- */}
             <div className="space-y-3">
                 <div className="flex items-center justify-between px-1">
-                    <h3 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground">Upcoming Votes ({queue.length})</h3>
-                    {queue.length > 0 && (
+                    <h3 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground">Upcoming Votes ({visibleQueue.length})</h3>
+                    {visibleQueue.length > 0 && (
                         <Button
                             variant="ghost"
                             size="sm"
@@ -271,10 +318,10 @@ function LiveQueue() {
                     )}
                 </div>
 
-                {queue.length === 0 ? (
+                {visibleQueue.length === 0 ? (
                     <div className="py-12 text-center border-2 border-dashed rounded-2xl text-muted-foreground text-sm">Waitlist is currently empty.</div>
                 ) : (
-                    queue.map((track, i) => (
+                    visibleQueue.map((track, i) => (
                         <Card key={track.track_id} className="p-2 border-none shadow-sm hover:shadow-md transition-shadow">
                             <div className="flex items-center gap-3">
                                 <span className="text-[10px] font-mono text-muted-foreground w-4">{i + 1}</span>
@@ -284,21 +331,18 @@ function LiveQueue() {
                                     <div className="text-[11px] text-muted-foreground truncate">{track.artist_name}</div>
                                 </div>
                                 <div className="flex items-center gap-0.5">
-                                    {/* Admin Unlimited Downvote Button */}
                                     <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, -1)} className="h-8 w-8 p-0 hover:text-red-500 hover:bg-red-500/10 transition-colors">
                                         <ThumbsDown className="h-4 w-4" />
                                     </Button>
 
                                     <span className="text-xs font-black w-6 text-center">{track.votes}</span>
 
-                                    {/* Admin Unlimited Upvote Button */}
                                     <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, 1)} className="h-8 w-8 p-0 hover:text-green-500 hover:bg-green-500/10 transition-colors">
                                         <ThumbsUp className="h-4 w-4" />
                                     </Button>
 
                                     <div className="w-px h-6 bg-border mx-1" />
 
-                                    {/* Admin Remove Button */}
                                     <Button variant="ghost" size="sm" onClick={() => handleRemove(track.track_id)} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                                         <Trash2 className="h-4 w-4" />
                                     </Button>

@@ -360,12 +360,13 @@ router.post('/playback/pause', async (req, res) => {
   res.json({ success: true });
 });
 
-// Get available Spotify devices
 router.get('/spotify/devices', async (req, res) => {
   try {
-    const devices = await spotify.getDevices();
+    const forceRefresh = req.query.refresh === 'true';
+    const devices = await spotify.getDevices(forceRefresh);
     res.json(devices);
-  } catch (e) {
+  } catch (error) {
+    console.error('Failed to clear device list payload:', error.message);
     res.status(500).json({ error: 'Failed to fetch devices' });
   }
 });
@@ -374,7 +375,7 @@ router.get('/spotify/devices', async (req, res) => {
 router.post('/playback/toggle', async (req, res) => {
   try {
     const current = await spotify.getNowPlaying();
-    if (!current) return res.status(404).json({ error: 'No active device' });
+    if (!current) return res.status(404).json({ error: 'No active device. Play a song on Spotify first!' });
 
     if (current.is_playing) {
       await spotify.pausePlayback();
@@ -383,14 +384,16 @@ router.post('/playback/toggle', async (req, res) => {
     }
     res.json({ success: true, isPlaying: !current.is_playing });
   } catch (e) {
-    res.status(500).json({ error: 'Playback control failed' });
+    // Forward the EXACT error from Spotify instead of a generic message
+    const spotifyError = e.response?.data?.error?.message || 'Playback control failed';
+    res.status(500).json({ error: `Spotify says: ${spotifyError}` });
   }
 });
 
 router.post('/playback/next', async (req, res) => {
   try {
     if (engine.getStatus()) {
-      engine.triggerManualSkip(); // Use the engine's skip logic
+      await engine.triggerManualSkip(); // Use the engine's skip logic
       res.json({ success: true, message: 'Engine skip triggered' });
     } else {
       await spotify.skipPlayback();
@@ -437,6 +440,15 @@ router.get('/playlists', async (req, res) => {
     // This stops the crash and tells the frontend exactly what went wrong!
     console.error("Spotify Fetch Error:", e.message);
     res.status(500).json({ error: 'Failed to fetch playlists. Please reconnect your Spotify account.' });
+  }
+});
+
+// Admin: Get live Spotify API traffic stats
+router.get('/spotify/stats', (req, res) => {
+  try {
+    res.json(spotify.getApiStats());
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch API stats' });
   }
 });
 
@@ -525,6 +537,11 @@ router.delete('/queue-clear', (req, res) => {
 
 router.get('/now-playing', async (req, res) => {
   try {
+    // KILLSWITCH: If the party/engine is stopped, DO NOT ask Spotify!
+    if (!engine.getStatus()) {
+      return res.json({ is_playing: false, stopped: true });
+    }
+
     const current = await spotify.getNowPlaying();
     if (!current) return res.json({ is_playing: false });
 
@@ -547,30 +564,51 @@ router.get('/now-playing', async (req, res) => {
 router.post('/start-party', async (req, res) => {
   const { deviceId } = req.body;
   try {
-    // 1. Tell Spotify to wake up this specific device
+    // 1. Wake up the device
     await spotify.transferPlayback(deviceId);
 
-    // 2. Turn on the Engine if it's not already running
+    // 2. Turn on the Auto-Engine if it's not already running
     if (!engine.getStatus()) {
       engine.startEngine();
     }
 
-    res.json({ success: true, message: "Party started on selected device!" });
+    // 3. Load the first song from the queue and play it immediately!
+    const db = getDb();
+    const topTrack = db.prepare('SELECT * FROM local_queue ORDER BY votes DESC, added_at ASC LIMIT 1').get();
+
+    if (topTrack) {
+      await spotify.playTrack(`spotify:track:${topTrack.track_id}`, deviceId);
+      // Tell the engine to track it WITHOUT deleting it from the database!
+      engine.setLoadedTrack(topTrack.track_id);
+    }
+
+    res.json({ success: true, message: "Party started! The first song is playing." });
   } catch (e) {
+    console.error("Start Party Error:", e.response?.data?.error || e.message);
     res.status(500).json({ error: 'Failed to start party on this device.' });
   }
 });
 
 router.post('/stop-party', async (req, res) => {
-  try
-  {
+  try {
+    // 1. Stop the background Auto-Engine
     if (engine.getStatus()) {
       engine.stopEngine();
     }
-    res.json({ success: true, message: "Party stopped." });
-  }
-  catch (e) {
-    res.status(500).json({ error: 'Failed to stop party on this device.' });
+
+    // 2. Tell Spotify to cut the music
+    try {
+      await spotify.pausePlayback();
+    } catch (spotifyError) {
+      // We quietly ignore this error! If the music is already paused,
+      // or the speaker fell asleep, we don't want it to crash the Stop button.
+      console.log("Note: Could not pause Spotify during stop-party (likely already paused).");
+    }
+
+    res.json({ success: true, message: "Party stopped and music paused." });
+  } catch (e) {
+    console.error("Stop Party Error:", e);
+    res.status(500).json({ error: 'Failed to fully stop the party.' });
   }
 });
 
