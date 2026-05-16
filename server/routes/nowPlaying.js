@@ -29,31 +29,49 @@ function ensureLyricsFetch(track, cacheKey) {
 
 router.get('/', async (req, res) => {
   try {
-    const nowPlaying = await getNowPlaying();
+    const current = await getNowPlaying();
 
-    if (nowPlaying) {
-      const cacheKey = nowPlaying.id;
+    // Ensure we have a valid song object with an item inside
+    if (current && current.item) {
+      const trackItem = current.item;
+      const cacheKey = trackItem.id;
+
       if (lyricsCache.has(cacheKey)) {
-        nowPlaying.lyrics = lyricsCache.get(cacheKey);
+        current.lyrics = lyricsCache.get(cacheKey);
       } else {
-        ensureLyricsFetch(nowPlaying, cacheKey);
+        ensureLyricsFetch(trackItem, cacheKey);
       }
-    }
 
-    // Pre-fetch lyrics for the next song(s) in queue so they're ready when the track changes
-    try {
-      const { queue } = await getQueue();
-      if (queue?.length > 0) {
-        for (let i = 0; i < Math.min(queue.length, 2); i++) {
-          const next = queue[i];
-          ensureLyricsFetch(next, next.id);
+      // Pre-fetch lyrics for the next song(s) in queue
+      try {
+        const { queue } = await getQueue();
+        if (queue?.length > 0) {
+          for (let i = 0; i < Math.min(queue.length, 2); i++) {
+            const next = queue[i];
+            ensureLyricsFetch(next, next.track_id || next.id);
+          }
         }
+      } catch {
+        // Non-critical; continue
       }
-    } catch {
-      // Non-critical; continue with response
+
+      // THE FIX: "Flatten" the object so the older frontend screens can read it!
+      const flatTrack = {
+        is_playing: current.is_playing,
+        progress_ms: current.progress_ms,
+        duration_ms: current.duration_ms,
+        id: trackItem.id,
+        name: trackItem.name,
+        artists: trackItem.artists,
+        album_art: trackItem.album_art,
+        lyrics: current.lyrics
+      };
+
+      return res.json({ track: flatTrack });
     }
 
-    res.json({ track: nowPlaying });
+    // If nothing is playing, return null
+    res.json({ track: null });
   } catch (error) {
     console.error('Now playing error:', error);
     res.json({ track: null });

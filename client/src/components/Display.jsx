@@ -6,7 +6,8 @@ import { useAuraColor } from '../hooks/useAuraColor'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const POLL_INTERVAL = 3000
+// CHANGED: Lowered to 1 second so song changes are lightning fast!
+const POLL_INTERVAL = 1000
 const LINE_HEIGHT = 220
 
 function computeLyricLineIndex(lines, currentMs) {
@@ -33,7 +34,7 @@ export default function Display() {
   const [cachedLyrics, setCachedLyrics] = useState(null)
 
   // Tunable Sync Offset
-  const [lyricOffset, setLyricOffset] = useState(-250)
+  const [lyricOffset, setLyricOffset] = useState(300)
 
   const nowPlayingRef = useRef(null)
   const lastFetchedAtRef = useRef(null)
@@ -42,6 +43,8 @@ export default function Display() {
   const auraColor = useAuraColor(nowPlaying?.album_art)
   const appUrl = queueUrl || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '')
 
+  // YOUR ORIGINAL, PERFECT DELTA MATH:
+  // It guarantees buttery smoothness even if the browser drops frames
   function getPlaybackMs() {
     const track = nowPlayingRef.current
     if (!track || !track.is_playing) return track?.progress_ms ?? 0
@@ -56,14 +59,17 @@ export default function Display() {
           axios.get('/api/queue/voting-list'),
           axios.get('/api/config/public')
         ])
+
         const track = npRes.data?.track ?? null
+
         if (track?.id !== nowPlayingRef.current?.id) setCachedLyrics(null)
         if (track && track.lyrics) setCachedLyrics(track.lyrics)
         else if (track && cachedLyrics) track.lyrics = cachedLyrics
 
         setNowPlaying(track)
         nowPlayingRef.current = track
-        lastFetchedAtRef.current = Date.now()
+        lastFetchedAtRef.current = Date.now() // Record the exact millisecond of truth!
+
         setUpNext(qRes.data || [])
         setQueueUrl(configRes.data?.queue_url || '')
         setConnected(true)
@@ -73,6 +79,7 @@ export default function Display() {
         setInitialized(true)
       }
     }
+
     fetchDisplayData()
     const interval = setInterval(fetchDisplayData, POLL_INTERVAL)
     return () => clearInterval(interval)
@@ -83,13 +90,17 @@ export default function Display() {
     const tick = () => {
       const track = nowPlayingRef.current
       if (!track?.duration_ms) return
+
       const currentMs = getPlaybackMs()
       setProgress(Math.min((currentMs / track.duration_ms) * 100, 100))
+
       if (track.lyrics?.lines?.length) {
         setCurrentLyricIndex(computeLyricLineIndex(track.lyrics.lines, currentMs + lyricOffset))
       }
     }
-    progressTimerRef.current = setInterval(tick, 100)
+
+    // INCREASED SPEED: Running at ~30 frames per second for ultra-smooth lyrics!
+    progressTimerRef.current = setInterval(tick, 30)
     return () => clearInterval(progressTimerRef.current)
   }, [nowPlaying, lyricOffset])
 

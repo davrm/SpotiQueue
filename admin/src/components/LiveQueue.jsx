@@ -219,7 +219,7 @@ function LiveQueue() {
 
     const activeDevice = devices.find(d => d.is_active)
     const progressPercent = nowPlaying ? (localProgress / nowPlaying.duration_ms) * 100 : 0
-    const visibleQueue = nowPlaying ? queue.filter(track => track.track_id !== nowPlaying.item.id) : queue;
+    const visibleQueue = queue;
 
     return (
         <div className="space-y-6 max-w-5xl mx-auto pb-[450px] px-2">

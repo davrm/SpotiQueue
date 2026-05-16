@@ -290,20 +290,39 @@ async function transferPlayback(deviceId) {
   CACHE.nowPlaying.expires = 0;
 }
 
-// BUGFIX: Swapped the parameters so the Auto-Engine can safely call it later!
+function overrideNowPlayingCache(trackData) {
+  CACHE.nowPlaying.data = {
+    is_playing: true,
+    progress_ms: 0,
+    // We guess the length (3m20s). The true sync will overwrite this seamlessly in 8 seconds!
+    duration_ms: trackData.duration_ms || 200000,
+    item: {
+      id: trackData.track_id || trackData.id,
+      name: trackData.track_name || trackData.name,
+      artists: trackData.artist_name || trackData.artists,
+      album_art: trackData.album_art
+    }
+  };
+  CACHE.nowPlaying.fetchedAt = Date.now();
+  // Lock the cache for 8 seconds to completely ignore Spotify's native API lag!
+  CACHE.nowPlaying.expires = Date.now() + 8000;
+}
+
+function clearNowPlayingCache() {
+  CACHE.nowPlaying.expires = 0;
+}
+
+// BUGFIX: Removed the cache clear from playTrack so our override survives!
 async function playTrack(track_uri, device_id = null) {
   const token = await getAccessToken();
   const config = {
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
   };
 
-  // Only attach the device ID if we specifically target one
   if (device_id) config.params = { device_id };
 
   await axios.put(`${SPOTIFY_API_BASE}/me/player/play`, { uris: [track_uri] }, config);
-
-  // Force the cache to clear instantly so the Engine sees the brand new song!
-  CACHE.nowPlaying.expires = 0;
+  // Do NOT clear the cache here anymore!
 }
 
 async function pausePlayback() {
@@ -358,5 +377,7 @@ module.exports = {
   pausePlayback,
   resumePlayback,
   skipToNext,
-  getApiStats
+  getApiStats,
+  overrideNowPlayingCache,
+  clearNowPlayingCache
 };

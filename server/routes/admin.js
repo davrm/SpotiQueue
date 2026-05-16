@@ -543,17 +543,18 @@ router.get('/now-playing', async (req, res) => {
     }
 
     const current = await spotify.getNowPlaying();
-    if (!current) return res.json({ is_playing: false });
+    // Make sure we actually have an active item inside!
+    if (!current || !current.item) return res.json({ is_playing: false });
 
     res.json({
       is_playing: current.is_playing,
       progress_ms: current.progress_ms,
       duration_ms: current.duration_ms,
       item: {
-        id: current.id,
-        name: current.name,
-        artists: current.artists,
-        album_art: current.album_art
+        id: current.item.id,
+        name: current.item.name,
+        artists: current.item.artists,
+        album_art: current.item.album_art
       }
     });
   } catch (e) {
@@ -567,18 +568,20 @@ router.post('/start-party', async (req, res) => {
     // 1. Wake up the device
     await spotify.transferPlayback(deviceId);
 
-    // 2. Turn on the Auto-Engine if it's not already running
+    // 2. Turn on the Auto-Engine
     if (!engine.getStatus()) {
       engine.startEngine();
     }
 
-    // 3. Load the first song from the queue and play it immediately!
+    // 3. Load the first song
     const db = getDb();
     const topTrack = db.prepare('SELECT * FROM local_queue ORDER BY votes DESC, added_at ASC LIMIT 1').get();
 
     if (topTrack) {
+      // THE FIX: Pre-shoot the cache so all connected screens update instantly!
+      spotify.overrideNowPlayingCache(topTrack);
+
       await spotify.playTrack(`spotify:track:${topTrack.track_id}`, deviceId);
-      // Tell the engine to track it WITHOUT deleting it from the database!
       engine.setLoadedTrack(topTrack.track_id);
     }
 

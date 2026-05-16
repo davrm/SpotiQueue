@@ -3,6 +3,7 @@ const { getDb } = require('../db');
 const { getConfig } = require('../utils/config');
 const { searchTracks, getTrack, parseSpotifyUrl, addToQueue, getQueue } = require('../utils/spotify');
 const { getGuestAuthRequirements, sendAuthRequiredResponse } = require('../utils/guest-auth');
+const engine = require('../utils/autoEngine');
 
 const router = express.Router();
 const db = getDb();
@@ -329,9 +330,24 @@ router.post('/add', async (req, res) => {
 
 router.get('/voting-list', (req, res) => {
   try {
-    // Fetch songs ordered by most votes, then by oldest added
-    const stmt = db.prepare('SELECT * FROM local_queue ORDER BY votes DESC, added_at ASC');
-    const queue = stmt.all();
+    const db = getDb();
+
+    // Get the currently playing song from the Auto-Engine
+    const loadedTrackId = engine.getLoadedTrackId();
+    const isEngineRunning = engine.getStatus();
+
+    let queue;
+
+    // Filter out the currently playing song ONLY if the party is actively running
+    if (isEngineRunning && loadedTrackId) {
+      const stmt = db.prepare('SELECT * FROM local_queue WHERE track_id != ? ORDER BY votes DESC, added_at ASC');
+      queue = stmt.all(loadedTrackId);
+    } else {
+      // If the party is stopped, show everything (including the paused song!)
+      const stmt = db.prepare('SELECT * FROM local_queue ORDER BY votes DESC, added_at ASC');
+      queue = stmt.all();
+    }
+
     res.json(queue);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch voting queue' });
