@@ -26,6 +26,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 // Force override any PORT from .env file in development
 let PORT;
 if (isProduction) {
+  app.set('trust proxy', 1);
   PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 } else {
   // Development mode - FORCE port 5000, ignore any PORT from .env
