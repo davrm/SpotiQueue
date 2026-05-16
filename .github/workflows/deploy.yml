@@ -16,4 +16,5 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            chmod +x /home/davrmassol/SpotiQueue/deploy.sh
             /home/davrmassol/SpotiQueue/deploy.sh
