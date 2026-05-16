@@ -31,7 +31,7 @@ router.get('/authorize', (req, res) => {
     return res.status(400).json({ error: 'SPOTIFY_CLIENT_ID not configured' });
   }
 
-  const scopes = 'user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private';
+  const scopes = 'user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative';
   const authUrl = `https://accounts.spotify.com/authorize?` +
     `client_id=${encodeURIComponent(clientId)}&` +
     `response_type=code&` +
