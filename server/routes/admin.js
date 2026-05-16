@@ -489,6 +489,40 @@ router.post('/queue/add-playlist/:playlistId', async (req, res) => {
   }
 });
 
+// Admin: Add a single track to the queue (Bypasses all guest limits)
+router.post('/queue/add', async (req, res) => {
+  const { track_id } = req.body;
+  if (!track_id) return res.status(400).json({ error: 'Track ID required' });
+
+  try {
+    const trackInfo = await spotify.getTrack(track_id);
+
+    // Instantly add it to the queue without checking fingerprints or cooldowns
+    db.prepare(`
+      INSERT INTO local_queue (track_id, track_name, artist_name, album_art, votes) 
+      VALUES (?, ?, ?, ?, 1)
+      ON CONFLICT(track_id) DO UPDATE SET votes = votes + 1
+    `).run(track_id, trackInfo.name, trackInfo.artists, trackInfo.album_art);
+
+    res.json({ success: true, message: 'Track added' });
+  } catch (error) {
+    console.error('Admin Queue Add Error:', error);
+    res.status(500).json({ error: 'Failed to add track' });
+  }
+});
+
+// Admin: Clear the entire voting queue
+router.delete('/queue-clear', (req, res) => {
+  try {
+    const db = getDb();
+    db.prepare('DELETE FROM local_queue').run();
+    res.json({ success: true, message: 'Queue completely cleared' });
+  } catch (error) {
+    console.error('Error clearing queue:', error);
+    res.status(500).json({ error: 'Failed to clear queue' });
+  }
+});
+
 router.get('/now-playing', async (req, res) => {
   try {
     const current = await spotify.getNowPlaying();

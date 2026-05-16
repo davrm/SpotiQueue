@@ -96,9 +96,18 @@ function LiveQueue() {
 
     const handleTogglePlay = () => axios.post('/api/admin/playback/toggle').then(fetchData).catch(e => alert(e.response?.data?.error))
     const handleNext = () => axios.post('/api/admin/playback/next').then(fetchData)
-    // This handleVote route is natively completely unlimited for Admins!
     const handleVote = (trackId, delta) => axios.post(`/api/admin/queue/${trackId}/vote`, { delta }).then(fetchData)
     const handleRemove = (trackId) => window.confirm('Remove from queue?') && axios.delete(`/api/admin/queue/${trackId}`).then(fetchData)
+
+    const handleClearQueue = async () => {
+        if (!window.confirm('Are you sure you want to permanently clear the entire waitlist? This cannot be undone!')) return;
+        try {
+            await axios.delete('/api/admin/queue-clear');
+            fetchData();
+        } catch (e) {
+            alert('Failed to clear the queue.');
+        }
+    }
 
     // --- 4. SEARCH & LIBRARY ACTIONS ---
     const handleSearch = async () => {
@@ -138,9 +147,27 @@ function LiveQueue() {
 
     const addToLocalQueue = async (track) => {
         try {
-            await axios.post('/api/queue/add', { track_id: track.id })
+            // Uses the Admin bypass route instead of the restricted guest route
+            await axios.post('/api/admin/queue/add', { track_id: track.id })
             fetchData()
-        } catch (e) { /* Track already in queue */ }
+        } catch (e) {
+            alert('Failed to add track to queue.')
+        }
+    }
+
+    const handleRemoveFromPlaylist = async (track) => {
+        if (!selectedPlaylist) return;
+        if (!window.confirm(`Are you sure you want to permanently delete "${track.name}" from your Spotify playlist?`)) return;
+
+        try {
+            await axios.delete(`/api/admin/playlists/${selectedPlaylist.id}/tracks`, {
+                data: { uri: track.uri }
+            });
+            // Refresh the playlist view instantly
+            loadPlaylistTracks(selectedPlaylist);
+        } catch (e) {
+            alert('Failed to delete track. Ensure you granted modify permissions!');
+        }
     }
 
     if (loading) return <div className="text-center py-20 text-muted-foreground animate-pulse">Initializing CrowdPlay Control...</div>
@@ -230,7 +257,20 @@ function LiveQueue() {
 
             {/* --- LIST: VOTING QUEUE --- */}
             <div className="space-y-3">
-                <h3 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground px-1">Upcoming Votes ({queue.length})</h3>
+                <div className="flex items-center justify-between px-1">
+                    <h3 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground">Upcoming Votes ({queue.length})</h3>
+                    {queue.length > 0 && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleClearQueue}
+                            className="h-6 px-2 text-[10px] font-bold text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                            CLEAR ALL
+                        </Button>
+                    )}
+                </div>
+
                 {queue.length === 0 ? (
                     <div className="py-12 text-center border-2 border-dashed rounded-2xl text-muted-foreground text-sm">Waitlist is currently empty.</div>
                 ) : (
@@ -244,7 +284,7 @@ function LiveQueue() {
                                     <div className="text-[11px] text-muted-foreground truncate">{track.artist_name}</div>
                                 </div>
                                 <div className="flex items-center gap-0.5">
-                                    {/* NEW: Admin Unlimited Downvote Button */}
+                                    {/* Admin Unlimited Downvote Button */}
                                     <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, -1)} className="h-8 w-8 p-0 hover:text-red-500 hover:bg-red-500/10 transition-colors">
                                         <ThumbsDown className="h-4 w-4" />
                                     </Button>
@@ -333,9 +373,16 @@ function LiveQueue() {
                                         <div className="text-[10px] text-muted-foreground truncate uppercase">{track.artists}</div>
                                     </div>
                                 </div>
-                                <Button size="sm" variant="secondary" className="h-8 w-8 p-0 rounded-full" onClick={() => addToLocalQueue(track)}>
-                                    <Plus className="h-4 w-4" />
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                    {selectedPlaylist && (
+                                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full hover:bg-red-500/10 hover:text-red-500 text-muted-foreground" onClick={() => handleRemoveFromPlaylist(track)}>
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    <Button size="sm" variant="secondary" className="h-8 w-8 p-0 rounded-full" onClick={() => addToLocalQueue(track)}>
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </div>
                         ))}
                     </div>

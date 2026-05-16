@@ -40,7 +40,7 @@ function SpotifyConnect() {
 
   const handleConnect = async () => {
     try {
-      const response = await axios.get('/api/auth/authorize')
+      const response = await axios.get('/api/auth/authorize?t=' + Date.now())
       window.location.href = response.data.authUrl
     } catch (error) {
       alert('Failed to start authorization. Please check your Spotify credentials in .env file.')

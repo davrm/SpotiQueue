@@ -75,26 +75,31 @@ router.get('/current', async (req, res) => {
 // Search tracks
 router.post('/search', async (req, res) => {
   try {
-    // Check if queueing is enabled (search is only useful when queueing is enabled)
-    const queueingEnabled = getConfig('queueing_enabled');
-    if (queueingEnabled === 'false') {
-      return res.status(503).json({ error: 'Queueing is currently disabled.' });
+    // Check if the user is an Admin
+    const isAdmin = !!(req.session && req.session.adminAuthenticated);
+
+    // If NOT an admin, check if queueing is enabled for guests
+    if (!isAdmin) {
+      const queueingEnabled = getConfig('queueing_enabled');
+      if (queueingEnabled === 'false') {
+        return res.status(503).json({ error: 'Queueing is currently disabled.' });
+      }
     }
-    
+
     const { query } = req.body;
-    
+
     if (!query || query.trim().length === 0) {
       return res.status(400).json({ error: 'Search query required' });
     }
-    
+
     let tracks = await searchTracks(query, 10);
-    
+
     // Filter out explicit tracks if ban_explicit is enabled
     const banExplicit = getConfig('ban_explicit') === 'true';
     if (banExplicit) {
       tracks = tracks.filter(track => !track.explicit);
     }
-    
+
     res.json({ tracks });
   } catch (error) {
     console.error('Search error:', error);

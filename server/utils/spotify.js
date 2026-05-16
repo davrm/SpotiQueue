@@ -250,20 +250,23 @@ async function skipPlayback() {
 async function getPlaylistTracks(playlistId) {
   try {
     const token = await getAccessToken();
-    const response = await axios.get(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
+
+    // 1. Use the new /items endpoint to completely bypass the 403 Forbidden block!
+    const response = await axios.get(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
 
     if (!response.data || !response.data.items) return [];
 
-    // 1. STRICT FILTER: Must exist, must have an ID, and MUST be a 'track' (no podcasts!)
-    const validItems = response.data.items.filter(item => {
-      return item && item.track && item.track.id && item.track.type === 'track';
+    // 2. Safely extract the tracks using Spotify's new 'wrapper.item' property!
+    const validItems = response.data.items.filter(wrapper => {
+      // This line safely supports BOTH the old and new Spotify data formats
+      const t = wrapper.item || wrapper.track;
+      return t && t.id && t.type === 'track';
     });
 
-    // 2. MAP SAFELY: Never assume arrays or objects exist
-    return validItems.map(item => {
-      const t = item.track;
+    return validItems.map(wrapper => {
+      const t = wrapper.item || wrapper.track;
       let imageUrl = null;
 
       if (t.album && t.album.images && t.album.images.length > 0) {
@@ -274,11 +277,11 @@ async function getPlaylistTracks(playlistId) {
         id: t.id,
         name: t.name || 'Unknown Track',
         artists: (t.artists && Array.isArray(t.artists)) ? t.artists.map(a => a.name).join(', ') : 'Unknown Artist',
-        album_art: imageUrl
+        album_art: imageUrl,
+        uri: t.uri // Required if you added the delete button!
       };
     });
   } catch (error) {
-    // This will print the EXACT Spotify error to your backend terminal if it fails!
     console.error(`Spotify API Error (Playlist ${playlistId}):`, error.response?.data || error.message);
     throw error;
   }
