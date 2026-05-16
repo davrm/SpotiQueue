@@ -36,8 +36,7 @@ router.get('/authorize', (req, res) => {
     `client_id=${encodeURIComponent(clientId)}&` +
     `response_type=code&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `scope=${encodeURIComponent(scopes)}&`+
-    `show_dialog=true`;
+    `scope=${encodeURIComponent(scopes)}`;
   
   console.log(`OAuth redirect URI: ${redirectUri}`);
   res.json({ authUrl, redirectUri }); // Also return redirectUri for debugging
