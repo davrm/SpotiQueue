@@ -30,13 +30,14 @@ router.get('/authorize', (req, res) => {
   if (!clientId) {
     return res.status(400).json({ error: 'SPOTIFY_CLIENT_ID not configured' });
   }
-  
-  const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
+
+  const scopes = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative';
   const authUrl = `https://accounts.spotify.com/authorize?` +
     `client_id=${encodeURIComponent(clientId)}&` +
     `response_type=code&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `scope=${encodeURIComponent(scopes)}`;
+    `scope=${encodeURIComponent(scopes)}&`+
+    `show_dialog=true`;
   
   console.log(`OAuth redirect URI: ${redirectUri}`);
   res.json({ authUrl, redirectUri }); // Also return redirectUri for debugging
@@ -242,15 +243,15 @@ router.post('/disconnect', requireAdminSession, (req, res) => {
     if (fs.existsSync(envPath)) {
       envContent = fs.readFileSync(envPath, 'utf8');
     }
-    
-    // Remove refresh token from .env
+
+    // Remove refresh token from .env safely
     if (envContent.includes('SPOTIFY_REFRESH_TOKEN=')) {
-      envContent = envContent.replace(/SPOTIFY_REFRESH_TOKEN=.*\n?/g, '');
+      envContent = envContent.replace(/SPOTIFY_REFRESH_TOKEN=.*/g, 'SPOTIFY_REFRESH_TOKEN=');
     }
-    
-    // Remove user ID from .env
+
+    // Remove user ID from .env safely
     if (envContent.includes('SPOTIFY_USER_ID=')) {
-      envContent = envContent.replace(/SPOTIFY_USER_ID=.*\n?/g, '');
+      envContent = envContent.replace(/SPOTIFY_USER_ID=.*/g, 'SPOTIFY_USER_ID=');
     }
     
     // Write back to .env

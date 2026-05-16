@@ -248,15 +248,54 @@ async function skipPlayback() {
 }
 
 async function getPlaylistTracks(playlistId) {
-  const token = await getAccessToken();
-  const response = await axios.get(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, { headers: { 'Authorization': `Bearer ${token}` } });
-  return response.data.items.map(item => ({ id: item.track.id, name: item.track.name, artists: item.track.artists.map(a => a.name).join(', '), album_art: item.track.album.images[0]?.url || null }));
+  try {
+    const token = await getAccessToken();
+    const response = await axios.get(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!response.data || !response.data.items) return [];
+
+    // 1. STRICT FILTER: Must exist, must have an ID, and MUST be a 'track' (no podcasts!)
+    const validItems = response.data.items.filter(item => {
+      return item && item.track && item.track.id && item.track.type === 'track';
+    });
+
+    // 2. MAP SAFELY: Never assume arrays or objects exist
+    return validItems.map(item => {
+      const t = item.track;
+      let imageUrl = null;
+
+      if (t.album && t.album.images && t.album.images.length > 0) {
+        imageUrl = t.album.images[0].url;
+      }
+
+      return {
+        id: t.id,
+        name: t.name || 'Unknown Track',
+        artists: (t.artists && Array.isArray(t.artists)) ? t.artists.map(a => a.name).join(', ') : 'Unknown Artist',
+        album_art: imageUrl
+      };
+    });
+  } catch (error) {
+    // This will print the EXACT Spotify error to your backend terminal if it fails!
+    console.error(`Spotify API Error (Playlist ${playlistId}):`, error.response?.data || error.message);
+    throw error;
+  }
 }
 
 async function getUserPlaylists() {
   const token = await getAccessToken();
-  const response = await axios.get(`${SPOTIFY_API_BASE}/me/playlists`, { headers: { 'Authorization': `Bearer ${token}` } });
-  return response.data.items.map(p => ({ id: p.id, name: p.name, trackCount: p.tracks.total, image: p.images[0]?.url || null }));
+  const response = await axios.get(`${SPOTIFY_API_BASE}/me/playlists`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return response.data.items.map(p => ({
+    id: p.id,
+    name: p.name,
+    // Safely checks for tracks, and defaults to 0 if Spotify hides it!
+    trackCount: p.tracks?.total || 0,
+    image: p.images && p.images[0] ? p.images[0].url : null
+  }));
 }
 
 async function transferPlayback(deviceId) {

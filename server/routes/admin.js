@@ -434,7 +434,9 @@ router.get('/playlists', async (req, res) => {
     const playlists = await spotify.getUserPlaylists();
     res.json(playlists);
   } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch playlists' });
+    // This stops the crash and tells the frontend exactly what went wrong!
+    console.error("Spotify Fetch Error:", e.message);
+    res.status(500).json({ error: 'Failed to fetch playlists. Please reconnect your Spotify account.' });
   }
 });
 
@@ -444,6 +446,8 @@ router.get('/playlists/:id/tracks', async (req, res) => {
     const tracks = await spotify.getPlaylistTracks(req.params.id);
     res.json(tracks);
   } catch (e) {
+    // Add this line so your terminal tells us what is wrong!
+    console.error("Backend Error fetching playlist tracks:", e.message);
     res.status(500).json({ error: 'Failed to fetch playlist tracks' });
   }
 });
