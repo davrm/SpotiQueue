@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { QRCodeSVG } from 'qrcode.react'
-import { ThumbsUp, WifiOff, Settings, Plus, Minus, QrCode } from 'lucide-react'
+import { ThumbsUp, WifiOff, Settings, Plus, Minus, QrCode, ArrowUpDown, Clock, ChevronsUpDown } from 'lucide-react'
 import { useAuraColor } from '../hooks/useAuraColor'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const POLL_INTERVAL = 1000
-const LINE_HEIGHT = 220
 
 function computeLyricLineIndex(lines, currentMs) {
   if (!lines?.length) return 0
@@ -22,18 +21,15 @@ function computeLyricLineIndex(lines, currentMs) {
   return idx
 }
 
-// NEW: Brightness Booster Helper
-// This forces dark colors to scale up so they are always visible on black backgrounds!
+// Brightness Booster Helper
 function getVibrantColor(rgbString) {
-  if (!rgbString) return '#1DB954' // Default to Spotify Green if loading
+  if (!rgbString) return '#1DB954'
 
   let [r, g, b] = rgbString.split(',').map(Number)
   const max = Math.max(r, g, b)
 
-  // If the color is basically pitch black, force a nice visible silver
   if (max < 30) return 'rgb(180, 180, 180)'
 
-  // If the color is dark, mathematically scale it up so the brightest channel hits 200
   if (max < 200) {
     const multiplier = 200 / max
     r = Math.round(r * multiplier)
@@ -55,7 +51,15 @@ export default function Display() {
   const [cachedLyrics, setCachedLyrics] = useState(null)
 
   const [showQR, setShowQR] = useState(true)
-  const [lyricOffset, setLyricOffset] = useState(300)
+
+  // Tunable Sync & Visual Offsets
+  const [lyricOffset, setLyricOffset] = useState(300)      // Time offset (ms)
+  const [heightOffset, setHeightOffset] = useState(0)      // Vertical position (px)
+  const [lineSpacing, setLineSpacing] = useState(32)       // NEW: Gap between text lines (px)
+
+  // Dynamic height calculation
+  const [dynamicTranslateY, setDynamicTranslateY] = useState(0)
+  const lyricsContainerRef = useRef(null)
 
   const nowPlayingRef = useRef(null)
   const lastFetchedAtRef = useRef(null)
@@ -70,6 +74,7 @@ export default function Display() {
     return (track.progress_ms ?? 0) + (Date.now() - (lastFetchedAtRef.current || Date.now()))
   }
 
+  // API Polling
   useEffect(() => {
     const fetchDisplayData = async () => {
       try {
@@ -104,6 +109,7 @@ export default function Display() {
     return () => clearInterval(interval)
   }, [cachedLyrics])
 
+  // Progress Timer
   useEffect(() => {
     if (progressTimerRef.current) clearInterval(progressTimerRef.current)
     const tick = () => {
@@ -122,9 +128,24 @@ export default function Display() {
     return () => clearInterval(progressTimerRef.current)
   }, [nowPlaying, lyricOffset])
 
-  const progressPercent = nowPlaying ? progress : 0
+  // DYNAMIC SCROLL ENGINE (Now reacts to lineSpacing changes instantly!)
+  useEffect(() => {
+    const calculateOffset = () => {
+      if (lyricsContainerRef.current) {
+        const activeEl = lyricsContainerRef.current.children[currentLyricIndex]
+        if (activeEl) {
+          setDynamicTranslateY(-(activeEl.offsetTop + activeEl.offsetHeight / 2) + heightOffset)
+        }
+      }
+    }
 
-  // Apply our new Brightness Booster to the extracted color!
+    // Using a tiny timeout to ensure DOM has painted the new padding before measuring
+    setTimeout(calculateOffset, 10)
+    window.addEventListener('resize', calculateOffset)
+    return () => window.removeEventListener('resize', calculateOffset)
+  }, [currentLyricIndex, nowPlaying?.lyrics?.lines, heightOffset, lineSpacing])
+
+  const progressPercent = nowPlaying ? progress : 0
   const dynamicColor = getVibrantColor(auraColor)
 
   return (
@@ -141,10 +162,13 @@ export default function Display() {
             </>
         )}
 
-        {/* GHOST SYNC & QR TOGGLE CONTROL */}
+        {/* GHOST SYNC & SETTINGS CONTROLS */}
         <div className="absolute bottom-6 left-6 z-50 flex items-center gap-4 bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded-full opacity-0 hover:opacity-100 transition-opacity duration-500 group">
           <Settings className="w-4 h-4 text-white/50 ml-2 group-hover:animate-spin" />
-          <div className="flex items-center gap-1 bg-white/10 rounded-full p-1">
+
+          {/* 1. Time Offset Menu */}
+          <div className="flex items-center gap-1 bg-white/10 rounded-full p-1" title="Adjust Lyric Timing (ms)">
+            <Clock className="w-3.5 h-3.5 text-white/50 ml-2" />
             <button onClick={() => setLyricOffset(prev => prev - 50)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
               <Minus className="w-4 h-4 text-white" />
             </button>
@@ -153,7 +177,37 @@ export default function Display() {
               <Plus className="w-4 h-4 text-white" />
             </button>
           </div>
+
           <div className="w-px h-6 bg-white/20" />
+
+          {/* 2. Height Anchor Offset Menu */}
+          <div className="flex items-center gap-1 bg-white/10 rounded-full p-1" title="Adjust Vertical Anchor Position (px)">
+            <ArrowUpDown className="w-3.5 h-3.5 text-white/50 ml-2" />
+            <button onClick={() => setHeightOffset(prev => prev - 25)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+              <Minus className="w-4 h-4 text-white" />
+            </button>
+            <span className="w-16 text-center text-xs font-black font-mono text-white/80">{heightOffset > 0 ? `+${heightOffset}` : heightOffset}px</span>
+            <button onClick={() => setHeightOffset(prev => prev + 25)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+              <Plus className="w-4 h-4 text-white" />
+            </button>
+          </div>
+
+          <div className="w-px h-6 bg-white/20" />
+
+          {/* 3. Text Spacing / Gap Menu */}
+          <div className="flex items-center gap-1 bg-white/10 rounded-full p-1" title="Adjust Text Spacing/Gap (px)">
+            <ChevronsUpDown className="w-3.5 h-3.5 text-white/50 ml-2" />
+            <button onClick={() => setLineSpacing(prev => Math.max(0, prev - 8))} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+              <Minus className="w-4 h-4 text-white" />
+            </button>
+            <span className="w-16 text-center text-xs font-black font-mono text-white/80">{lineSpacing}px</span>
+            <button onClick={() => setLineSpacing(prev => prev + 8)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+              <Plus className="w-4 h-4 text-white" />
+            </button>
+          </div>
+
+          <div className="w-px h-6 bg-white/20" />
+
           <button
               onClick={() => setShowQR(!showQR)}
               className={cn("p-3 rounded-full transition-colors", showQR ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/50")}
@@ -197,11 +251,12 @@ export default function Display() {
                   {/* SMOOTH KINETIC LYRICS */}
                   <div className="flex-1 relative overflow-hidden mask-lyrics w-full">
                     {nowPlaying.lyrics?.lines ? (
-                        <div className="absolute top-[35%] left-0 right-0 flex flex-col items-center pointer-events-none" style={{ marginTop: `-${LINE_HEIGHT / 2}px` }}>
+                        <div className="absolute top-[40%] left-0 right-0 flex flex-col items-center pointer-events-none">
                           <div
+                              ref={lyricsContainerRef}
                               className="w-full flex flex-col items-center transition-transform duration-[1200ms]"
                               style={{
-                                transform: `translateY(${-currentLyricIndex * LINE_HEIGHT}px)`,
+                                transform: `translateY(${dynamicTranslateY}px)`,
                                 transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)'
                               }}
                           >
@@ -217,12 +272,14 @@ export default function Display() {
                                           isFocus ? "opacity-100 scale-100" : isPast ? "opacity-0 blur-2xl scale-[0.65]" : "opacity-30 blur-[2px] scale-[0.70]"
                                       )}
                                       style={{
-                                        height: `${LINE_HEIGHT}px`,
+                                        // NEW: Apply the live, tweakable spacing state directly to the padding!
+                                        paddingTop: `${lineSpacing}px`,
+                                        paddingBottom: `${lineSpacing}px`,
                                         transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)'
                                       }}
                                   >
                                     <p className={cn(
-                                        "text-5xl sm:text-[6rem] leading-[1.1] font-black drop-shadow-[0_15px_40px_rgba(0,0,0,0.8)] transition-colors duration-[1200ms]",
+                                        "text-5xl sm:text-[5rem] leading-[1.15] font-black drop-shadow-[0_15px_40px_rgba(0,0,0,0.8)] transition-colors duration-[1200ms]",
                                         isFocus ? "text-white" : "text-white/70"
                                     )}>
                                       {line.words}
