@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { QRCodeSVG } from 'qrcode.react'
-import { ThumbsUp, WifiOff, Settings, Plus, Minus } from 'lucide-react'
+import { ThumbsUp, WifiOff, Settings, Plus, Minus, QrCode } from 'lucide-react'
 import { useAuraColor } from '../hooks/useAuraColor'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// CHANGED: Lowered to 1 second so song changes are lightning fast!
 const POLL_INTERVAL = 1000
 const LINE_HEIGHT = 220
 
@@ -23,6 +22,28 @@ function computeLyricLineIndex(lines, currentMs) {
   return idx
 }
 
+// NEW: Brightness Booster Helper
+// This forces dark colors to scale up so they are always visible on black backgrounds!
+function getVibrantColor(rgbString) {
+  if (!rgbString) return '#1DB954' // Default to Spotify Green if loading
+
+  let [r, g, b] = rgbString.split(',').map(Number)
+  const max = Math.max(r, g, b)
+
+  // If the color is basically pitch black, force a nice visible silver
+  if (max < 30) return 'rgb(180, 180, 180)'
+
+  // If the color is dark, mathematically scale it up so the brightest channel hits 200
+  if (max < 200) {
+    const multiplier = 200 / max
+    r = Math.round(r * multiplier)
+    g = Math.round(g * multiplier)
+    b = Math.round(b * multiplier)
+  }
+
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 export default function Display() {
   const [nowPlaying, setNowPlaying] = useState(null)
   const [upNext, setUpNext] = useState([])
@@ -33,7 +54,7 @@ export default function Display() {
   const [currentLyricIndex, setCurrentLyricIndex] = useState(0)
   const [cachedLyrics, setCachedLyrics] = useState(null)
 
-  // Tunable Sync Offset
+  const [showQR, setShowQR] = useState(true)
   const [lyricOffset, setLyricOffset] = useState(300)
 
   const nowPlayingRef = useRef(null)
@@ -43,8 +64,6 @@ export default function Display() {
   const auraColor = useAuraColor(nowPlaying?.album_art)
   const appUrl = queueUrl || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '')
 
-  // YOUR ORIGINAL, PERFECT DELTA MATH:
-  // It guarantees buttery smoothness even if the browser drops frames
   function getPlaybackMs() {
     const track = nowPlayingRef.current
     if (!track || !track.is_playing) return track?.progress_ms ?? 0
@@ -68,7 +87,7 @@ export default function Display() {
 
         setNowPlaying(track)
         nowPlayingRef.current = track
-        lastFetchedAtRef.current = Date.now() // Record the exact millisecond of truth!
+        lastFetchedAtRef.current = Date.now()
 
         setUpNext(qRes.data || [])
         setQueueUrl(configRes.data?.queue_url || '')
@@ -99,25 +118,19 @@ export default function Display() {
       }
     }
 
-    // INCREASED SPEED: Running at ~30 frames per second for ultra-smooth lyrics!
     progressTimerRef.current = setInterval(tick, 30)
     return () => clearInterval(progressTimerRef.current)
   }, [nowPlaying, lyricOffset])
 
   const progressPercent = nowPlaying ? progress : 0
 
+  // Apply our new Brightness Booster to the extracted color!
+  const dynamicColor = getVibrantColor(auraColor)
+
   return (
       <div className="fixed inset-0 bg-black text-white flex flex-col overflow-hidden select-none font-display uppercase tracking-tighter">
 
-        {/* 1. TOP PROGRESS BAR */}
-        <div className="absolute top-0 left-0 right-0 h-3 z-50 bg-white/10">
-          <div
-              className="h-full transition-all duration-300 ease-linear shadow-[0_0_25px_#1DB954]"
-              style={{ width: `${progressPercent}%`, backgroundColor: '#1DB954' }}
-          />
-        </div>
-
-        {/* 2. DYNAMIC BACKGROUND AURA */}
+        {/* DYNAMIC BACKGROUND AURA */}
         {nowPlaying?.album_art && (
             <>
               <div
@@ -128,8 +141,8 @@ export default function Display() {
             </>
         )}
 
-        {/* 3. GHOST SYNC CONTROL */}
-        <div className="absolute bottom-6 left-6 z-50 flex items-center gap-3 bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded-full opacity-0 hover:opacity-100 transition-opacity duration-500 group">
+        {/* GHOST SYNC & QR TOGGLE CONTROL */}
+        <div className="absolute bottom-6 left-6 z-50 flex items-center gap-4 bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded-full opacity-0 hover:opacity-100 transition-opacity duration-500 group">
           <Settings className="w-4 h-4 text-white/50 ml-2 group-hover:animate-spin" />
           <div className="flex items-center gap-1 bg-white/10 rounded-full p-1">
             <button onClick={() => setLyricOffset(prev => prev - 50)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
@@ -140,16 +153,37 @@ export default function Display() {
               <Plus className="w-4 h-4 text-white" />
             </button>
           </div>
+          <div className="w-px h-6 bg-white/20" />
+          <button
+              onClick={() => setShowQR(!showQR)}
+              className={cn("p-3 rounded-full transition-colors", showQR ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/50")}
+              title="Toggle QR Code"
+          >
+            <QrCode className="w-4 h-4" />
+          </button>
         </div>
 
-        <div className="relative z-10 flex flex-col sm:flex-row flex-1 min-h-0 pt-3">
+        <div className="relative z-10 flex flex-col sm:flex-row flex-1 min-h-0">
 
           {/* --- LEFT: MAIN FOCUS AREA --- */}
-          <div className="flex-[2.4] flex flex-col p-10 min-h-0 overflow-hidden">
+          <div className="flex-[2.4] flex flex-col p-10 min-h-0 overflow-hidden relative border-r border-white/10">
+
+            {/* PROGRESS BAR */}
+            <div className="absolute top-0 left-0 right-0 h-2 bg-white/5 z-50">
+              <div
+                  className="h-full transition-all duration-300 ease-linear"
+                  style={{
+                    width: `${progressPercent}%`,
+                    backgroundColor: dynamicColor,
+                    boxShadow: `0 0 25px ${dynamicColor}`
+                  }}
+              />
+            </div>
+
             {!initialized || !nowPlaying ? (
                 <div className="flex-1 flex items-center justify-center text-white/20 font-black text-6xl">SYNCING...</div>
             ) : (
-                <div className="w-full h-full flex flex-col gap-10">
+                <div className="w-full h-full flex flex-col gap-10 mt-6">
 
                   {/* HERO HEADER */}
                   <div className="glass-panel p-8 rounded-[3.5rem] flex items-center gap-10 shrink-0">
@@ -207,7 +241,7 @@ export default function Display() {
           </div>
 
           {/* --- RIGHT: SIDEBAR (FRAMER MOTION ANIMATED) --- */}
-          <div className="flex-1 flex flex-col overflow-hidden bg-black/70 backdrop-blur-3xl border-l border-white/10 rounded-l-[4rem]">
+          <div className="flex-1 flex flex-col overflow-hidden bg-black/70 backdrop-blur-3xl">
             <div className="flex-1 flex flex-col overflow-hidden p-10 pb-0">
               <div className="flex justify-between items-center mb-8 px-4">
                 <h3 className="text-lg font-black tracking-[0.6em] text-white/30 italic">UP NEXT</h3>
@@ -216,7 +250,7 @@ export default function Display() {
 
               <div className="flex-1 overflow-y-auto pr-2 no-scrollbar">
                 {upNext.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-white/5 font-black text-3xl italic tracking-widest">Waitlist Empty</div>
+                    <div className="h-full flex items-center justify-center text-white/5 font-black text-3xl italic tracking-widest text-center px-4">Waitlist Empty</div>
                 ) : (
                     <div className="flex flex-col gap-4 relative pb-4">
                       <AnimatePresence mode="popLayout">
@@ -228,17 +262,17 @@ export default function Display() {
                                 exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
                                 transition={{ type: "spring", stiffness: 350, damping: 25, mass: 1 }}
                                 key={track.track_id}
-                                className="flex items-center gap-5 p-4 rounded-[2.5rem] bg-white/[0.03] border border-white/5 shadow-lg"
+                                className="flex items-center gap-5 p-4 rounded-[2.5rem] bg-white/[0.05] border border-white/10 shadow-xl"
                             >
-                              <span className="text-white/10 font-black text-2xl italic w-8 text-center shrink-0">{i + 1}</span>
-                              <img src={track.album_art} className="w-14 h-14 rounded-2xl object-cover grayscale opacity-40 shrink-0" alt="" />
+                              <span className="text-white/20 font-black text-2xl italic w-8 text-center shrink-0">{i + 1}</span>
+                              <img src={track.album_art} className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0" alt="" />
                               <div className="flex-1 min-w-0">
                                 <p className="font-black text-base text-white truncate leading-none mb-1.5">{track.track_name}</p>
-                                <p className="text-zinc-600 text-[10px] font-black tracking-widest truncate uppercase">{track.artist_name}</p>
+                                <p className="text-zinc-400 text-[10px] font-black tracking-widest truncate uppercase">{track.artist_name}</p>
                               </div>
-                              <div className="bg-white/5 px-4 py-2.5 rounded-2xl flex items-center gap-2 border border-white/5 shrink-0">
-                                <span className="text-white/70 font-black text-lg">{track.votes}</span>
-                                <ThumbsUp className="h-4 w-4 text-white/30" />
+                              <div className="bg-white/10 px-4 py-2.5 rounded-2xl flex items-center gap-2 border border-white/5 shrink-0">
+                                <span className="text-white font-black text-lg">{track.votes}</span>
+                                <ThumbsUp className="h-4 w-4 text-white/50" />
                               </div>
                             </motion.div>
                         ))}
@@ -248,16 +282,16 @@ export default function Display() {
               </div>
             </div>
 
-            {/* QR SECTION */}
-            {appUrl && (
-                <div className="shrink-0 p-10 bg-black/40 border-t border-white/10">
+            {/* TOGGLEABLE QR SECTION */}
+            {appUrl && showQR && (
+                <div className="shrink-0 p-10 bg-black/40 border-t border-white/10 transition-all duration-500">
                   <div className="flex items-center gap-8">
                     <div className="w-32 h-32 bg-white p-3 shrink-0 shadow-2xl ring-4 ring-white/5 rounded-3xl">
                       <QRCodeSVG value={appUrl} width="100%" height="100%" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="font-black text-4xl text-white italic tracking-tighter leading-none">JOIN PARTY</h4>
-                      <p className="text-zinc-500 font-black text-[11px] tracking-[0.2em] mt-3 truncate uppercase">{appUrl}</p>
+                      <p className="text-zinc-400 font-black text-[11px] tracking-[0.2em] mt-3 truncate uppercase">{appUrl}</p>
                     </div>
                   </div>
                 </div>
