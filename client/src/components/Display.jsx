@@ -340,7 +340,7 @@ export default function Display() {
                           </div>
                         </div>
                     ) : (
-                        <div className="absolute inset-0 flex items-center justify-center text-white/10 font-black text-5xl italic tracking-widest">Enjoy the Vibe</div>
+                        <div className="absolute inset-0 flex items-center justify-center text-white/10 font-black text-5xl  tracking-widest">Enjoy the Vibe</div>
                     )}
                   </div>
                 </div>
@@ -351,13 +351,13 @@ export default function Display() {
           <div className="flex-1 flex flex-col overflow-hidden bg-black/70 backdrop-blur-3xl">
             <div className="flex-1 flex flex-col overflow-hidden p-10 pb-0">
               <div className="flex justify-between items-center mb-8 px-4">
-                <h3 className="text-lg font-black tracking-[0.6em] text-white/30 italic">UP NEXT</h3>
+                <h3 className="text-lg font-black tracking-[0.6em] text-white/30 ">UP NEXT</h3>
                 <span className="bg-white/10 px-3 py-1 rounded-full text-xs font-black text-white">{upNext.length} TRACKS</span>
               </div>
 
               <div className="flex-1 overflow-y-auto pr-2 no-scrollbar">
                 {upNext.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-white/5 font-black text-3xl italic tracking-widest text-center px-4">Waitlist Empty</div>
+                    <div className="h-full flex items-center justify-center text-white/5 font-black text-3xl  tracking-widest text-center px-4">Waitlist Empty</div>
                 ) : (
                     <div className="flex flex-col gap-4 relative pb-4">
                       <AnimatePresence mode="popLayout">
@@ -371,7 +371,7 @@ export default function Display() {
                                 key={track.track_id}
                                 className="flex items-center gap-5 p-4 rounded-[2.5rem] bg-white/[0.05] border border-white/10 shadow-xl"
                             >
-                              <span className="text-white/20 font-black text-2xl italic w-8 text-center shrink-0">{i + 1}</span>
+                              <span className="text-white/20 font-black text-2xl  w-8 text-center shrink-0">{i + 1}</span>
                               <img src={track.album_art} className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0" alt="" />
                               <div className="flex-1 min-w-0">
                                 <p className="font-black text-base text-white truncate leading-none mb-1.5">{track.track_name}</p>
@@ -397,7 +397,7 @@ export default function Display() {
                       <QRCodeSVG value={appUrl} width="100%" height="100%" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-black text-4xl text-white italic tracking-tighter leading-none">JOIN PARTY</h4>
+                      <h4 className="font-black text-4xl text-white  tracking-tighter leading-none">JOIN PARTY</h4>
                       <p className="text-zinc-400 font-black text-[11px] tracking-[0.2em] mt-3 truncate uppercase">{appUrl}</p>
                     </div>
                   </div>
