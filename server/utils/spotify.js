@@ -212,6 +212,7 @@ async function getTrack(trackId) {
     id: track.id,
     name: track.name,
     artists: track.artists.map(a => a.name).join(', '),
+    album: track.album.name,
     album_art: track.album.images[0]?.url || null,
     uri: track.uri
   };

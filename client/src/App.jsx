@@ -4,7 +4,8 @@ import { ThemeToggle } from './components/theme-toggle'
 import NowPlaying from './components/NowPlaying'
 import QueueForm from './components/QueueForm'
 import Queue from './components/Queue'
-import { Github, Tv } from 'lucide-react'
+import { Github, Tv, Plus, X } from 'lucide-react'
+import { cn } from '@/lib/utils' // ¡Aquí está la importación que faltaba!
 
 axios.defaults.withCredentials = true
 
@@ -19,6 +20,8 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [username, setUsername] = useState('')
   const [usernameError, setUsernameError] = useState('')
+  const [isAddSongOpen, setIsAddSongOpen] = useState(false)
+  const [lastAddedTrackId, setLastAddedTrackId] = useState(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -27,38 +30,38 @@ function App() {
     }
     if (params.get('error')) {
       setAuthError(params.get('error') === 'github_auth_failed' || params.get('error') === 'google_auth_failed'
-        ? 'Authentication failed. Please try again.'
-        : params.get('error'))
+          ? 'Authentication failed. Please try again.'
+          : params.get('error'))
       window.history.replaceState({}, '', '/')
     }
 
     axios.post('/api/fingerprint/generate')
-      .then(response => {
-        const d = response.data
-        setFingerprintId(d.fingerprint_id)
-        setRequiresUsername(d.requires_username || false)
-        setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
-        setGithubConfigured(d.github_oauth_configured || false)
-        setGoogleConfigured(d.google_oauth_configured || false)
-        setLoading(false)
-      })
-      .catch(error => {
-        const d = error.response?.data || {}
-        if (d.requires_username || d.requires_github_auth || d.requires_google_auth) {
-          setRequiresUsername(!!d.requires_username)
+        .then(response => {
+          const d = response.data
+          setFingerprintId(d.fingerprint_id)
+          setRequiresUsername(d.requires_username || false)
           setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
           setGithubConfigured(d.github_oauth_configured || false)
           setGoogleConfigured(d.google_oauth_configured || false)
-        } else {
-          console.error('Error generating fingerprint:', error)
-        }
-        setLoading(false)
-      })
+          setLoading(false)
+        })
+        .catch(error => {
+          const d = error.response?.data || {}
+          if (d.requires_username || d.requires_github_auth || d.requires_google_auth) {
+            setRequiresUsername(!!d.requires_username)
+            setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
+            setGithubConfigured(d.github_oauth_configured || false)
+            setGoogleConfigured(d.google_oauth_configured || false)
+          } else {
+            console.error('Error generating fingerprint:', error)
+          }
+          setLoading(false)
+        })
 
     const updateNowPlaying = () => {
       axios.get('/api/now-playing')
-        .then(response => setNowPlaying(response.data.track))
-        .catch(error => console.error('Error fetching now playing:', error))
+          .then(response => setNowPlaying(response.data.track))
+          .catch(error => console.error('Error fetching now playing:', error))
     }
 
     updateNowPlaying()
@@ -92,9 +95,9 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background">
-        <div className="text-muted-foreground animate-pulse">Loading...</div>
-      </div>
+        <div className="min-h-[100dvh] flex items-center justify-center bg-background">
+          <div className="text-muted-foreground animate-pulse">Loading...</div>
+        </div>
     )
   }
 
@@ -118,95 +121,149 @@ function App() {
 
   if (requiresAuth) {
     return (
-      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8 shadow">
-          <h1 className="text-xl sm:text-2xl font-bold mb-2">Sign in to continue</h1>
-          <p className="text-muted-foreground mb-6">You need to sign in to queue songs.</p>
-          {authError && <div className="mb-4 text-sm text-destructive">{authError}</div>}
-          <div className="space-y-2">
-            {githubConfigured && (
-              <button
-                onClick={handleGithubLogin}
-                className="w-full flex items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-3 min-h-[48px] hover:bg-accent active:bg-accent/80 transition-colors touch-manipulation"
-              >
-                <Github className="h-5 w-5" /> Sign in with GitHub
-              </button>
-            )}
-            {googleConfigured && (
-              <button
-                onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-3 min-h-[48px] hover:bg-accent active:bg-accent/80 transition-colors touch-manipulation"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                Sign in with Google
-              </button>
+        <div className="min-h-[100dvh] flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+          <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8 shadow">
+            <h1 className="text-xl sm:text-2xl font-bold mb-2">Sign in to continue</h1>
+            <p className="text-muted-foreground mb-6">You need to sign in to queue songs.</p>
+            {authError && <div className="mb-4 text-sm text-destructive">{authError}</div>}
+            <div className="space-y-2">
+              {githubConfigured && (
+                  <button
+                      onClick={handleGithubLogin}
+                      className="w-full flex items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-3 min-h-[48px] hover:bg-accent active:bg-accent/80 transition-colors touch-manipulation"
+                  >
+                    <Github className="h-5 w-5" /> Sign in with GitHub
+                  </button>
+              )}
+              {googleConfigured && (
+                  <button
+                      onClick={handleGoogleLogin}
+                      className="w-full flex items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-3 min-h-[48px] hover:bg-accent active:bg-accent/80 transition-colors touch-manipulation"
+                  >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                    Sign in with Google
+                  </button>
+              )}
+            </div>
+            {!githubConfigured && !googleConfigured && (
+                <p className="mt-4 text-sm text-muted-foreground">OAuth is not configured. Contact the admin.</p>
             )}
           </div>
-          {!githubConfigured && !googleConfigured && (
-            <p className="mt-4 text-sm text-muted-foreground">OAuth is not configured. Contact the admin.</p>
-          )}
         </div>
-      </div>
     )
   }
 
   if (requiresUsername) {
     return (
-      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8 shadow">
-          <h1 className="text-xl sm:text-2xl font-bold mb-2">Welcome!</h1>
-          <p className="text-muted-foreground mb-6">Please enter your name to continue:</p>
-          <form onSubmit={handleUsernameSubmit} className="space-y-4">
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Your name"
-              className="flex h-12 min-h-[44px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base"
-              maxLength={50}
-              autoFocus
-            />
-            {usernameError && (
-              <div className="text-sm text-destructive">{usernameError}</div>
-            )}
-            <button
-              type="submit"
-              className="w-full inline-flex items-center justify-center rounded-md bg-primary px-4 py-3 min-h-[44px] text-sm font-medium text-primary-foreground hover:bg-primary/90 active:bg-primary/80 touch-manipulation"
-            >
-              Continue
-            </button>
-          </form>
+        <div className="min-h-[100dvh] flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+          <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8 shadow">
+            <h1 className="text-xl sm:text-2xl font-bold mb-2">Welcome!</h1>
+            <p className="text-muted-foreground mb-6">Please enter your name to continue:</p>
+            <form onSubmit={handleUsernameSubmit} className="space-y-4">
+              <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Your name"
+                  className="flex h-12 min-h-[44px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base"
+                  maxLength={50}
+                  autoFocus
+              />
+              {usernameError && (
+                  <div className="text-sm text-destructive">{usernameError}</div>
+              )}
+              <button
+                  type="submit"
+                  className="w-full inline-flex items-center justify-center rounded-md bg-primary px-4 py-3 min-h-[44px] text-sm font-medium text-primary-foreground hover:bg-primary/90 active:bg-primary/80 touch-manipulation"
+              >
+                Continue
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background min-h-[100dvh]">
-      <header className="flex justify-between items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-        <a href="/display" title="Display mode" className="p-2.5 -ml-1 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
-          <Tv className="h-5 w-5" />
-        </a>
-        <ThemeToggle />
-      </header>
-      <main className="container max-w-2xl mx-auto px-4 pb-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
-        <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Queue a Song</h1>
-        <NowPlaying track={nowPlaying} />
-        <QueueForm fingerprintId={fingerprintId} />
-        <Queue fingerprintId={fingerprintId} />
-        <footer className="mt-8 pt-4 flex justify-start">
-          <a
-            href="https://github.com/stroepwafel/spotiqueue"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground/80 transition-colors"
+      <div className="min-h-[100dvh] bg-background flex flex-col overflow-hidden relative">
+
+        {/* HEADER FLOTANTE */}
+        <header className="flex justify-between items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))] bg-background/80 backdrop-blur-md sticky top-0 z-40 border-b">
+          <div className="flex items-center gap-1">
+            <a href="/display" title="Display mode" className="p-2.5 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
+              <Tv className="h-5 w-5" />
+            </a>
+            <ThemeToggle />
+          </div>
+        </header>
+
+        {/* CONTENIDO PRINCIPAL SCROLLEABLE */}
+        <main className="flex-1 overflow-y-auto w-full max-w-2xl mx-auto px-4 pb-28 pt-4 hide-scrollbar">
+
+          {/* NOW PLAYING DESTACADO */}
+          <div className="mb-8">
+            <NowPlaying track={nowPlaying} />
+          </div>
+
+          {/* LA COLA (LISTA DE ESPERA) */}
+          <Queue
+              fingerprintId={fingerprintId}
+              lastAddedTrackId={lastAddedTrackId}
+              onTrackHighlighted={() => setLastAddedTrackId(null)}
+          />
+        </main>
+
+        {/* FLUJO DE AGREGAR CANCIÓN (MODAL/BOTTOM SHEET) */}
+        {/* Overlay Oscuro */}
+        {isAddSongOpen && (
+            <div
+                className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm transition-opacity"
+                onClick={() => setIsAddSongOpen(false)}
+            />
+        )}
+
+        {/* Contenedor del Buscador */}
+        <div
+            className={cn(
+                "fixed bottom-0 left-0 right-0 z-50 bg-card border-t shadow-2xl rounded-t-3xl transition-transform duration-300 ease-out transform max-h-[85vh] flex flex-col",
+                isAddSongOpen ? "translate-y-0" : "translate-y-full"
+            )}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b">
+            <h2 className="text-xl font-bold tracking-tight">Add to Queue</h2>
+            <button
+                onClick={() => setIsAddSongOpen(false)}
+                className="p-2 rounded-full bg-muted/50 hover:bg-muted text-muted-foreground"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-4 overflow-y-auto hide-scrollbar">
+            <QueueForm
+                fingerprintId={fingerprintId}
+                onSuccess={(trackId) => {
+                  setLastAddedTrackId(trackId)
+                  setIsAddSongOpen(false)
+                }}
+            />
+          </div>
+        </div>
+
+        {/* BOTÓN FLOTANTE (FAB) */}
+        <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,1.5rem))] right-4 z-40">
+          <button
+              onClick={() => setIsAddSongOpen(true)}
+              className={cn(
+                  "flex items-center justify-center w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-300",
+                  isAddSongOpen && "scale-0 opacity-0"
+              )}
           >
-            <Github className="h-3.5 w-3.5" />
-            GitHub
-          </a>
-        </footer>
-      </main>
-    </div>
+            <Plus className="w-7 h-7" />
+          </button>
+        </div>
+
+      </div>
   )
 }
 

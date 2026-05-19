@@ -258,17 +258,16 @@ router.post('/add', async (req, res) => {
 
     // Save to local queue
     const stmt = db.prepare(`
-      INSERT INTO local_queue (track_id, track_name, artist_name, album_art, votes) 
+      INSERT INTO local_queue (track_id, track_name, artist_name, album_art, votes)
       VALUES (?, ?, ?, ?, 1)
-      ON CONFLICT(track_id) DO UPDATE SET votes = votes + 1
+        ON CONFLICT(track_id) DO UPDATE SET votes = votes + 1
     `);
 
-    // We use trackInfo which is fetched right above this block
     stmt.run(
         trackId,
         trackInfo.name,
         trackInfo.artists || 'Unknown Artist',
-        trackInfo.album?.images?.[0]?.url || ''
+        trackInfo.album_art || ''
     );
     
     // Log successful queue first (so it's included in the count)

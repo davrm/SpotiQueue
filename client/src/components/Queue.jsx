@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Music } from 'lucide-react'
 import { Button } from './ui/button'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
-function Queue({ fingerprintId }) {
+// Actualizamos los props para recibir lastAddedTrackId y onTrackHighlighted
+function Queue({ fingerprintId, lastAddedTrackId, onTrackHighlighted }) {
   const [queue, setQueue] = useState([])
   const [userVotes, setUserVotes] = useState({})
   const [loading, setLoading] = useState(true)
-
-  // NEW: State to track if the Admin has enabled downvotes
   const [downvoteEnabled, setDownvoteEnabled] = useState(true)
+  const [highlightedTrack, setHighlightedTrack] = useState(null)
+
+  // Diccionario de Referencias para hacer scroll a cada track
+  const trackRefs = useRef({})
 
   const fetchVotingQueue = async () => {
     try {
@@ -21,10 +24,7 @@ function Queue({ fingerprintId }) {
       ]);
       setQueue(queueRes.data)
       setUserVotes(votesRes.data.userVotes || {})
-
-      // Catch the admin setting from the backend response
       setDownvoteEnabled(votesRes.data.downvoteEnabled !== false)
-
     } catch (e) {
       console.error("Failed to fetch voting queue", e)
     } finally {
@@ -38,9 +38,33 @@ function Queue({ fingerprintId }) {
     return () => clearInterval(interval)
   }, [fingerprintId])
 
+  // EFFECT MAGICO: Hace scroll cuando aparece un lastAddedTrackId nuevo
+  useEffect(() => {
+    if (lastAddedTrackId) {
+      // Comprueba si la canción ya está en la lista visible
+      const isTrackInQueue = queue.some(t => t.track_id === lastAddedTrackId)
+
+      if (isTrackInQueue && trackRefs.current[lastAddedTrackId]) {
+        // Hace scroll suave hasta el elemento
+        trackRefs.current[lastAddedTrackId].scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        })
+
+        // Activa un efecto de "brillo"
+        setHighlightedTrack(lastAddedTrackId)
+
+        // Resetea todo después de 2 segundos
+        setTimeout(() => {
+          setHighlightedTrack(null)
+          if (onTrackHighlighted) onTrackHighlighted()
+        }, 2000)
+      }
+    }
+  }, [lastAddedTrackId, queue, onTrackHighlighted])
+
   const handleVote = async (trackId, direction) => {
     if (!fingerprintId) return
-
     try {
       await axios.post('/api/queue/quick-vote', {
         track_id: trackId,
@@ -70,6 +94,7 @@ function Queue({ fingerprintId }) {
               const myVote = userVotes[track.track_id];
               const isUpvoted = myVote === 1;
               const isDownvoted = myVote === -1;
+              const isHighlighted = highlightedTrack === track.track_id;
 
               return (
                   <motion.div
@@ -79,15 +104,30 @@ function Queue({ fingerprintId }) {
                       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
                       transition={{ type: "spring", stiffness: 350, damping: 25, mass: 1 }}
                       key={track.track_id}
-                      className="flex items-center gap-4 p-3 rounded-2xl border bg-card shadow-sm"
+                      // 👇 Asignamos la referencia al div
+                      ref={el => (trackRefs.current[track.track_id] = el)}
+                      className={cn(
+                          "flex items-center gap-4 p-3 rounded-2xl border bg-card shadow-sm transition-all duration-500",
+                          isHighlighted && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/10 scale-[1.02]"
+                      )}
                   >
                   <span className="text-lg font-black text-muted-foreground w-6 text-center shrink-0 italic">
                     {i + 1}
                   </span>
 
-                    {track.album_art && (
-                        <img src={track.album_art} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
-                    )}
+                    {(track.album_art || track.image_url || track.image || track.album_image) ? (
+                        <img src={track.album_art} alt={track.album} className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0" />
+                    ) : null}
+
+                    {/* El Icono Musical genérico (se muestra si no hay imagen o si la imagen falla) */}
+                    <div
+                        className={cn(
+                            "w-12 h-12 rounded-xl bg-muted items-center justify-center shrink-0 border border-border/50",
+                            (track.album_art || track.image_url || track.image || track.album_image) ? "hidden" : "flex"
+                        )}
+                    >
+                      <Music className="w-5 h-5 text-muted-foreground opacity-40" />
+                    </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="font-bold truncate text-base leading-none mb-1">{track.track_name}</div>
@@ -97,7 +137,6 @@ function Queue({ fingerprintId }) {
                     {/* Dual-Voting Controls */}
                     <div className="flex items-center gap-1 sm:gap-2 shrink-0 bg-muted/50 rounded-xl p-1 border">
 
-                      {/* THUMBS DOWN BUTTON - ONLY RENDER IF ENABLED BY ADMIN */}
                       {downvoteEnabled && (
                           <Button
                               variant="ghost"
