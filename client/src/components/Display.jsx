@@ -64,6 +64,7 @@ export default function Display() {
   const nowPlayingRef = useRef(null)
   const lastFetchedAtRef = useRef(null)
   const progressTimerRef = useRef(null)
+  const progressBarRef = useRef(null)
 
   const auraColor = useAuraColor(nowPlaying?.album_art)
   const appUrl = queueUrl || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '')
@@ -90,9 +91,36 @@ export default function Display() {
         if (track && track.lyrics) setCachedLyrics(track.lyrics)
         else if (track && cachedLyrics) track.lyrics = cachedLyrics
 
-        setNowPlaying(track)
-        nowPlayingRef.current = track
-        lastFetchedAtRef.current = Date.now()
+        if (track) {
+          const oldTrack = nowPlayingRef.current;
+          let predictedMs = 0;
+
+          if (oldTrack && oldTrack.id === track.id && oldTrack.is_playing) {
+            predictedMs = (oldTrack.progress_ms ?? 0) + (Date.now() - (lastFetchedAtRef.current || Date.now()));
+          }
+
+          // Solo resincroniza si cambió la canción, el estado (pausa/play) o si el lag/desfase es mayor a 1.5s
+          if (
+              !oldTrack ||
+              oldTrack.id !== track.id ||
+              oldTrack.is_playing !== track.is_playing ||
+              Math.abs(predictedMs - track.progress_ms) > 1500
+          ) {
+            nowPlayingRef.current = track;
+            lastFetchedAtRef.current = Date.now();
+          } else {
+            // Mantiene el tiempo local fluido, solo actualiza metadatos
+            nowPlayingRef.current = {
+              ...track,
+              progress_ms: oldTrack.progress_ms
+            };
+            // No actualizamos lastFetchedAtRef para que siga contando suavemente
+          }
+        } else {
+          nowPlayingRef.current = null;
+        }
+
+        setNowPlaying(track);
 
         setUpNext(qRes.data || [])
         setQueueUrl(configRes.data?.queue_url || '')
@@ -109,24 +137,45 @@ export default function Display() {
     return () => clearInterval(interval)
   }, [cachedLyrics])
 
-  // Progress Timer
+  // Progress Timer (Animación Ultra-Fluida a 60/120 FPS)
   useEffect(() => {
-    if (progressTimerRef.current) clearInterval(progressTimerRef.current)
+    let animationFrameId;
+
     const tick = () => {
-      const track = nowPlayingRef.current
-      if (!track?.duration_ms) return
-
-      const currentMs = getPlaybackMs()
-      setProgress(Math.min((currentMs / track.duration_ms) * 100, 100))
-
-      if (track.lyrics?.lines?.length) {
-        setCurrentLyricIndex(computeLyricLineIndex(track.lyrics.lines, currentMs + lyricOffset))
+      const track = nowPlayingRef.current;
+      if (!track?.duration_ms) {
+        animationFrameId = requestAnimationFrame(tick);
+        return;
       }
-    }
 
-    progressTimerRef.current = setInterval(tick, 30)
-    return () => clearInterval(progressTimerRef.current)
-  }, [nowPlaying, lyricOffset])
+      const currentMs = getPlaybackMs();
+
+      // 1. EL TRUCO DE RENDIMIENTO: Actualizamos la barra directamente en el DOM
+      // Nos saltamos el "setProgress" para que React no re-renderice la pantalla pesada.
+      if (progressBarRef.current) {
+        const percent = Math.min((currentMs / track.duration_ms) * 100, 100);
+        progressBarRef.current.style.width = `${percent}%`;
+      }
+
+      // 2. LYRICS ENGINE: Solo actualizamos si REALMENTE cambió la línea
+      if (track.lyrics?.lines?.length) {
+        const nextIndex = computeLyricLineIndex(track.lyrics.lines, currentMs + lyricOffset);
+
+        setCurrentLyricIndex(prevIndex => {
+          // Al retornar lo mismo si no hay cambio, React ignora el re-render.
+          if (prevIndex !== nextIndex) return nextIndex;
+          return prevIndex;
+        });
+      }
+
+      // Volvemos a pedir el siguiente frame sincronizado con la pantalla
+      animationFrameId = requestAnimationFrame(tick);
+    };
+
+    animationFrameId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [lyricOffset]);
 
   // DYNAMIC SCROLL ENGINE (Now reacts to lineSpacing changes instantly!)
   useEffect(() => {
@@ -226,6 +275,7 @@ export default function Display() {
             <div className="absolute top-0 left-0 right-0 h-2 bg-white/5 z-50">
               <div
                   className="h-full transition-all duration-300 ease-linear"
+                  ref={progressBarRef}
                   style={{
                     width: `${progressPercent}%`,
                     backgroundColor: dynamicColor,
