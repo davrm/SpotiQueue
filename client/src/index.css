@@ -78,6 +78,10 @@
   }
 }
 
+html, body {
+  overflow-anchor: none;
+}
+
 @layer base {
   * {
     @apply border-border;

@@ -5,15 +5,14 @@ import { Button } from './ui/button'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// Actualizamos los props para recibir lastAddedTrackId y onTrackHighlighted
 function Queue({ fingerprintId, lastAddedTrackId, onTrackHighlighted }) {
   const [queue, setQueue] = useState([])
   const [userVotes, setUserVotes] = useState({})
   const [loading, setLoading] = useState(true)
+  const [votingEnabled, setVotingEnabled] = useState(true)
   const [downvoteEnabled, setDownvoteEnabled] = useState(true)
   const [highlightedTrack, setHighlightedTrack] = useState(null)
 
-  // Diccionario de Referencias para hacer scroll a cada track
   const trackRefs = useRef({})
 
   const fetchVotingQueue = async () => {
@@ -22,157 +21,133 @@ function Queue({ fingerprintId, lastAddedTrackId, onTrackHighlighted }) {
         axios.get('/api/queue/voting-list'),
         axios.get('/api/queue/votes', { params: { fingerprint_id: fingerprintId } })
       ]);
-      setQueue(queueRes.data)
-      setUserVotes(votesRes.data.userVotes || {})
-      setDownvoteEnabled(votesRes.data.downvoteEnabled !== false)
+      setQueue(queueRes.data);
+      setUserVotes(votesRes.data.userVotes || {});
+      setVotingEnabled(votesRes.data.enabled !== false);
+      setDownvoteEnabled(votesRes.data.downvoteEnabled !== false);
     } catch (e) {
-      console.error("Failed to fetch voting queue", e)
+      console.error("Error", e)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchVotingQueue()
-    const interval = setInterval(fetchVotingQueue, 3000)
-    return () => clearInterval(interval)
-  }, [fingerprintId])
+    fetchVotingQueue();
+    const interval = setInterval(fetchVotingQueue, 3000);
+    return () => clearInterval(interval);
+  }, [fingerprintId]);
 
-  // EFFECT MAGICO: Hace scroll cuando aparece un lastAddedTrackId nuevo
+  // Scroll a nueva canción
   useEffect(() => {
-    if (lastAddedTrackId) {
-      // Comprueba si la canción ya está en la lista visible
-      const isTrackInQueue = queue.some(t => t.track_id === lastAddedTrackId)
-
-      if (isTrackInQueue && trackRefs.current[lastAddedTrackId]) {
-        // Hace scroll suave hasta el elemento
-        trackRefs.current[lastAddedTrackId].scrollIntoView({
-          behavior: 'smooth',
-          block: 'center'
-        })
-
-        // Activa un efecto de "brillo"
-        setHighlightedTrack(lastAddedTrackId)
-
-        // Resetea todo después de 2 segundos
-        setTimeout(() => {
-          setHighlightedTrack(null)
-          if (onTrackHighlighted) onTrackHighlighted()
-        }, 2000)
-      }
+    if (lastAddedTrackId && trackRefs.current[lastAddedTrackId]) {
+      trackRefs.current[lastAddedTrackId].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedTrack({ id: lastAddedTrackId, type: 'add' });
+      setTimeout(() => setHighlightedTrack(null), 2000);
+      if (onTrackHighlighted) onTrackHighlighted();
     }
-  }, [lastAddedTrackId, queue, onTrackHighlighted])
+  }, [lastAddedTrackId, queue, onTrackHighlighted]);
 
   const handleVote = async (trackId, direction) => {
-    if (!fingerprintId) return
+    if (!fingerprintId) return;
+
+    // 1. Lógica de estado (Up/Down/Neutral)
+    const dirInt = direction === 'up' ? 1 : -1;
+    const currentVote = userVotes[trackId] || 0;
+
+    // Si el usuario clica el mismo botón, se vuelve neutral
+    const isNeutralizing = currentVote === dirInt;
+    const newUserVote = isNeutralizing ? null : dirInt;
+    const voteChange = isNeutralizing ? -dirInt : (currentVote !== 0 ? dirInt * 2 : dirInt);
+
+    // 2. Optimistic Update (Instantánea)
+    setUserVotes(prev => ({ ...prev, [trackId]: newUserVote }));
+    setQueue(prev => {
+      const updated = prev.map(t => t.track_id === trackId ? { ...t, votes: t.votes + voteChange } : t);
+      return updated.sort((a, b) => b.votes - a.votes || a.added_at.localeCompare(b.added_at));
+    });
+
+    // 3. Feedback visual: Rojo, Verde o Blanco (neutral)
+    setHighlightedTrack({ id: trackId, type: isNeutralizing ? 'neutral' : direction });
+
     try {
-      await axios.post('/api/queue/quick-vote', {
-        track_id: trackId,
-        direction: direction,
-        fingerprint_id: fingerprintId
-      })
-      fetchVotingQueue()
+      // 3. Votamos en el servidor
+      await axios.post('/api/queue/quick-vote', { track_id: trackId, direction, fingerprint_id: fingerprintId });
+
+      // 4. Descargamos el nuevo orden.
+      // Al hacer setQueue aquí, Framer Motion detecta el cambio de posición y mueve la tarjeta como flotando (gliding).
+      await fetchVotingQueue();
+
+      // 5. Esperamos 400ms (lo que tarda la animación visual de Framer Motion en deslizar la tarjeta)
+      // y entonces, si la tarjeta se ha ido fuera de tu pantalla, hacemos un scroll suave hacia ella.
+      setTimeout(() => {
+        if (trackRefs.current[trackId]) {
+          trackRefs.current[trackId].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        // Borramos el color al acabar
+        setTimeout(() => setHighlightedTrack(null), 1000);
+      }, 350);
     } catch (e) {
-      console.error(`Vote ${direction} failed`, e)
+      console.error("Fallo al votar", e)
+      setHighlightedTrack(null);
+      fetchVotingQueue();
     }
   }
 
   if (loading) return null
-  if (queue.length === 0) return (
-      <div className="mt-6 text-center text-muted-foreground font-semibold">
-        The waitlist is empty. Search for a song to start the party!
-      </div>
-  )
 
   return (
       <div className="mt-6">
         <h2 className="text-lg font-black tracking-widest uppercase mb-4 text-zinc-400">Waitlist</h2>
-
-        <div className="flex flex-col gap-3 relative">
-          <AnimatePresence mode="popLayout">
+        <div className="flex flex-col gap-3">
+          <AnimatePresence initial={false}>
             {queue.map((track, i) => {
-              const myVote = userVotes[track.track_id];
-              const isUpvoted = myVote === 1;
-              const isDownvoted = myVote === -1;
-              const isHighlighted = highlightedTrack === track.track_id;
+              const isUpvoted = userVotes[track.track_id] === 1;
+              const isDownvoted = userVotes[track.track_id] === -1;
+              const highlight = highlightedTrack?.id === track.track_id ? highlightedTrack.type : null;
 
               return (
                   <motion.div
                       layout
-                      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
-                      transition={{ type: "spring", stiffness: 350, damping: 25, mass: 1 }}
                       key={track.track_id}
-                      // 👇 Asignamos la referencia al div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{
+                        layout: { type: "spring", stiffness: 100, damping: 20 },
+                        duration: 0.2
+                      }}
                       ref={el => (trackRefs.current[track.track_id] = el)}
                       className={cn(
-                          "flex items-center gap-4 p-3 rounded-2xl border bg-card shadow-sm transition-all duration-500",
-                          isHighlighted && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/10 scale-[1.02]"
+                          "flex items-center gap-4 p-3 rounded-2xl border bg-card transition-colors duration-300",
+                          highlight === 'up' && "ring-2 ring-green-500 bg-green-500/10",
+                          highlight === 'down' && "ring-2 ring-red-500 bg-red-500/10",
+                          highlight === 'neutral' && "ring-2 ring-white bg-white/5" // Highlight blanco para neutral
                       )}
                   >
-                  <span className="text-lg font-black text-muted-foreground w-6 text-center shrink-0 italic">
-                    {i + 1}
-                  </span>
-
-                    {(track.album_art || track.image_url || track.image || track.album_image) ? (
-                        <img src={track.album_art} alt={track.album} className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0" />
-                    ) : null}
-
-                    {/* El Icono Musical genérico (se muestra si no hay imagen o si la imagen falla) */}
-                    <div
-                        className={cn(
-                            "w-12 h-12 rounded-xl bg-muted items-center justify-center shrink-0 border border-border/50",
-                            (track.album_art || track.image_url || track.image || track.album_image) ? "hidden" : "flex"
-                        )}
-                    >
-                      <Music className="w-5 h-5 text-muted-foreground opacity-40" />
-                    </div>
+                    <span className="text-lg font-black text-muted-foreground w-6 text-center">{i + 1}</span>
+                    <img src={track.album_art || ''} className="w-12 h-12 rounded-xl bg-muted object-cover" onError={(e) => e.target.style.display = 'none'} />
 
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold truncate text-base leading-none mb-1">{track.track_name}</div>
-                      <div className="text-[10px] text-muted-foreground truncate uppercase tracking-widest font-black">{track.artist_name}</div>
+                      <div className="font-bold truncate">{track.track_name}</div>
+                      <div className="text-xs text-muted-foreground truncate uppercase tracking-widest">{track.artist_name}</div>
                     </div>
 
-                    {/* Dual-Voting Controls */}
-                    <div className="flex items-center gap-1 sm:gap-2 shrink-0 bg-muted/50 rounded-xl p-1 border">
-
-                      {downvoteEnabled && (
-                          <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleVote(track.track_id, 'down')}
-                              className={cn(
-                                  "h-8 w-8 sm:px-2 p-0 rounded-lg transition-colors",
-                                  isDownvoted
-                                      ? "bg-red-500/20 text-red-600 hover:bg-red-500/30 hover:text-red-700"
-                                      : "text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
-                              )}
-                          >
-                            <ThumbsDown className={cn("h-4 w-4", isDownvoted && "fill-current")} />
-                          </Button>
-                      )}
-
-                      <span className="text-base font-black w-6 text-center">
-                      {track.votes}
-                    </span>
-
-                      {/* THUMBS UP BUTTON */}
-                      <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleVote(track.track_id, 'up')}
-                          className={cn(
-                              "h-8 w-8 sm:px-2 p-0 rounded-lg transition-colors",
-                              isUpvoted
-                                  ? "bg-green-500/20 text-green-600 hover:bg-green-500/30 hover:text-green-700"
-                                  : "text-muted-foreground hover:bg-green-500/10 hover:text-green-500"
+                    {votingEnabled && (
+                        <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 border">
+                          {downvoteEnabled && (
+                              <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, 'down')} className={cn("h-9 w-9", isDownvoted && "text-red-500")}>
+                                {/* fill-current rellena el icono si está activo */}
+                                <ThumbsDown className={cn("h-5 w-5", isDownvoted && "fill-current")} />
+                              </Button>
                           )}
-                      >
-                        <ThumbsUp className={cn("h-4 w-4", isUpvoted && "fill-current")} />
-                      </Button>
-
-                    </div>
+                          <span className="font-black w-8 text-center">{track.votes}</span>
+                          <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, 'up')} className={cn("h-9 w-9", isUpvoted && "text-green-500")}>
+                            {/* fill-current rellena el icono si está activo */}
+                            <ThumbsUp className={cn("h-5 w-5", isUpvoted && "fill-current")} />
+                          </Button>
+                        </div>
+                    )}
                   </motion.div>
               )
             })}
