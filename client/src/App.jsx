@@ -22,6 +22,7 @@ function App() {
   const [usernameError, setUsernameError] = useState('')
   const [isAddSongOpen, setIsAddSongOpen] = useState(false)
   const [lastAddedTrackId, setLastAddedTrackId] = useState(null)
+  const [queueingEnabled, setQueueingEnabled] = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -44,6 +45,7 @@ function App() {
           setGithubConfigured(d.github_oauth_configured || false)
           setGoogleConfigured(d.google_oauth_configured || false)
           setLoading(false)
+          setQueueingEnabled(d.queueing_enabled || false)
         })
         .catch(error => {
           const d = error.response?.data || {}
@@ -190,9 +192,9 @@ function App() {
         {/* HEADER FLOTANTE */}
         <header className="flex justify-between items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))] bg-background/80 backdrop-blur-md sticky top-0 z-40 border-b">
           <div className="flex items-center gap-1">
-            <a href="/display" title="Display mode" className="p-2.5 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
+            {/*<a href="/display" title="Display mode" className="p-2.5 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
               <Tv className="h-5 w-5" />
-            </a>
+            </a>*/}
             <ThemeToggle />
           </div>
         </header>
@@ -215,7 +217,7 @@ function App() {
 
         {/* FLUJO DE AGREGAR CANCIÓN (MODAL/BOTTOM SHEET) */}
         {/* Overlay Oscuro */}
-        {isAddSongOpen && (
+        {queueingEnabled && isAddSongOpen && (
             <div
                 className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm transition-opacity"
                 onClick={() => setIsAddSongOpen(false)}
@@ -223,45 +225,49 @@ function App() {
         )}
 
         {/* Contenedor del Buscador */}
-        <div
-            className={cn(
-                "fixed bottom-0 left-0 right-0 z-50 bg-card border-t shadow-2xl rounded-t-3xl transition-transform duration-300 ease-out transform max-h-[85vh] flex flex-col",
-                isAddSongOpen ? "translate-y-0" : "translate-y-full"
-            )}
-        >
-          <div className="flex items-center justify-between px-6 py-4 border-b">
-            <h2 className="text-xl font-bold tracking-tight">Add to Queue</h2>
-            <button
-                onClick={() => setIsAddSongOpen(false)}
-                className="p-2 rounded-full bg-muted/50 hover:bg-muted text-muted-foreground"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="p-4 overflow-y-auto hide-scrollbar">
-            <QueueForm
-                fingerprintId={fingerprintId}
-                onSuccess={(trackId) => {
-                  setLastAddedTrackId(trackId)
-                  setIsAddSongOpen(false)
-                }}
-            />
-          </div>
-        </div>
-
-        {/* BOTÓN FLOTANTE (FAB) */}
-        <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,1.5rem))] right-4 z-40">
-          <button
-              onClick={() => setIsAddSongOpen(true)}
+        {queueingEnabled && (
+          <div
               className={cn(
-                  "flex items-center justify-center w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-300",
-                  isAddSongOpen && "scale-0 opacity-0"
+                  "fixed bottom-0 left-0 right-0 z-50 bg-card border-t shadow-2xl rounded-t-3xl transition-transform duration-300 ease-out transform max-h-[85vh] flex flex-col",
+                  isAddSongOpen ? "translate-y-0" : "translate-y-full"
               )}
           >
-            <Plus className="w-7 h-7" />
-          </button>
-        </div>
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h2 className="text-xl font-bold tracking-tight">Add to Queue</h2>
+              <button
+                  onClick={() => setIsAddSongOpen(false)}
+                  className="p-2 rounded-full bg-muted/50 hover:bg-muted text-muted-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto hide-scrollbar">
+              <QueueForm
+                  fingerprintId={fingerprintId}
+                  onSuccess={(trackId) => {
+                    setLastAddedTrackId(trackId)
+                    setIsAddSongOpen(false)
+                  }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* BOTÓN FLOTANTE (FAB) */}
+        {queueingEnabled && (
+          <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,1.5rem))] right-4 z-40">
+            <button
+                onClick={() => setIsAddSongOpen(true)}
+                className={cn(
+                    "flex items-center justify-center w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-300",
+                    isAddSongOpen && "scale-0 opacity-0"
+                )}
+            >
+              <Plus className="w-7 h-7" />
+            </button>
+          </div>
+        )}
 
       </div>
   )

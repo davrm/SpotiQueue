@@ -12,6 +12,7 @@ router.post('/generate', (req, res) => {
   const fingerprintId = req.cookies.fingerprint_id || crypto.randomBytes(16).toString('hex');
   const username = req.body.username || null;
   const requireUsername = getConfig('require_username') === 'true';
+  const queueingEnabled = getConfig('queueing_enabled');
   
   // Check if fingerprint exists
   const existing = db.prepare('SELECT * FROM fingerprints WHERE id = ?').get(fingerprintId);
@@ -24,7 +25,8 @@ router.post('/generate', (req, res) => {
     if (requireUsername && !username) {
       return res.status(400).json({ 
         error: 'Username is required',
-        requires_username: true 
+        requires_username: true,
+        queueing_enabled: queueingEnabled === 'true'
       });
     }
     
@@ -42,7 +44,8 @@ router.post('/generate', (req, res) => {
     if (requireUsername && !existing.username && !username) {
       return res.status(400).json({ 
         error: 'Username is required',
-        requires_username: true 
+        requires_username: true,
+        queueing_enabled: queueingEnabled === 'true'
       });
     }
   }
@@ -63,7 +66,8 @@ router.post('/generate', (req, res) => {
     requires_github_auth: authReq.needsGithubAuth,
     requires_google_auth: authReq.needsGoogleAuth,
     github_oauth_configured: authReq.githubOAuthConfigured,
-    google_oauth_configured: authReq.googleOAuthConfigured
+    google_oauth_configured: authReq.googleOAuthConfigured,
+    queueing_enabled: queueingEnabled === 'true'
   });
 });
 

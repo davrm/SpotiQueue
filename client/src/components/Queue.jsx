@@ -134,7 +134,12 @@ function Queue({ fingerprintId, lastAddedTrackId, onTrackHighlighted }) {
                     </div>
 
                     {votingEnabled && (
-                        <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 border">
+                        <div className={cn(
+                            "flex items-center gap-1 rounded-xl p-1 border transition-colors duration-300",
+                            isUpvoted ? "bg-green-500/10 border-green-500/20" :
+                                isDownvoted ? "bg-red-500/10 border-red-500/20" :
+                                    "bg-muted/50 border-border"
+                        )}>
                           {downvoteEnabled && (
                               <Button variant="ghost" size="sm" onClick={() => handleVote(track.track_id, 'down')} className={cn("h-9 w-9", isDownvoted && "text-red-500")}>
                                 {/* fill-current rellena el icono si está activo */}
